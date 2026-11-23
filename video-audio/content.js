@@ -35,6 +35,8 @@
   const sourceBufferToMs = new WeakMap();  // SourceBuffer -> MediaSource
   const blobUrlCodecs = new Map();         // blob: URL string -> CodecState
   const knownMediaElements = new Set();
+  const observedMediaElements = new WeakSet();
+  const mediaEvents = ['play', 'playing', 'pause', 'ended', 'emptied', 'timeupdate'];
 
   function formatCodecName(raw) {
     const clean = raw.trim();
@@ -191,7 +193,6 @@
             }
             blobUrlCodecs.set(String(url), msState);
             dbg('Bound blob URL to MediaSource:', String(url), msState);
-            startPolling();
           }
         } catch (err) {
           dbgWarn('createObjectURL hook error:', err);
@@ -218,9 +219,8 @@
         if (typeof origMethod === 'function') {
           const wrappedMethod = function () {
             try {
-              knownMediaElements.add(this);
+              observeMedia(this);
               dbg(`Captured media element via HTMLMediaElement.prototype.${method}()`);
-              startPolling();
             } catch (_) {}
             return Function.prototype.apply.call(origMethod, this, arguments);
           };
@@ -265,7 +265,7 @@
     if (!root || !root.querySelectorAll) return;
     const media = root.querySelectorAll('video, audio');
     for (const el of media) {
-      knownMediaElements.add(el);
+      observeMedia(el);
     }
     if (media.length > 0) {
       dbg(`collectMediaElementsOnce found ${media.length} media element(s) in root:`, root);
@@ -281,29 +281,20 @@
     }
   }
 
-  function captureFromEvent(e) {
-    if (typeof e.composedPath === 'function') {
-      const path = e.composedPath();
-      for (const node of path) {
-        if (node && (node.tagName === 'VIDEO' || node.tagName === 'AUDIO')) {
-          if (!knownMediaElements.has(node)) {
-            dbg(`Discovered <${node.tagName.toLowerCase()}> via ${e.type} composedPath:`, {
-              src: node.currentSrc || node.src,
-              isConnected: node.isConnected,
-              readyState: node.readyState,
-              videoWidth: node.videoWidth
-            });
-          }
-          knownMediaElements.add(node);
-          return;
-        }
-      }
-    }
-    if (e.target && (e.target.tagName === 'VIDEO' || e.target.tagName === 'AUDIO')) {
-      if (!knownMediaElements.has(e.target)) {
-        dbg(`Discovered <${e.target.tagName.toLowerCase()}> via ${e.type} e.target:`, e.target.currentSrc || e.target.src);
-      }
-      knownMediaElements.add(e.target);
+  function handleMediaEvent(el, event) {
+    knownMediaElements.add(el);
+    if (event.type !== 'timeupdate' || pollTimerId === null) tick();
+  }
+
+  function observeMedia(el) {
+    knownMediaElements.add(el);
+    if (observedMediaElements.has(el)) return;
+    observedMediaElements.add(el);
+    // Media events from detached elements and inside shadow roots may not reach window.
+    for (const type of mediaEvents) {
+      el.addEventListener(type, event => {
+        if (!event.composedPath().includes(window)) handleMediaEvent(el, event);
+      });
     }
   }
 
@@ -322,6 +313,9 @@
   let currentFps = 0;
   let pollTimerId = null;
   let rafId = null;
+  const mediaResizeObserver = new ResizeObserver(() => {
+    if (pollTimerId === null) tick();
+  });
 
   function startPolling() {
     if (hudDismissed) return;
@@ -347,25 +341,14 @@
     });
   }
 
-  window.addEventListener('play', (e) => {
-    captureFromEvent(e);
-    startPolling();
-    tick();
-  }, true);
-
-  window.addEventListener('playing', (e) => {
-    captureFromEvent(e);
-    startPolling();
-    tick();
-  }, true);
-
-  window.addEventListener('timeupdate', (e) => {
-    captureFromEvent(e);
-    if (pollTimerId === null) {
-      startPolling();
-      tick();
-    }
-  }, true);
+  for (const type of mediaEvents) {
+    window.addEventListener(type, event => {
+      const el = event.composedPath().find(node => node.tagName === 'VIDEO' || node.tagName === 'AUDIO');
+      if (!el) return;
+      observeMedia(el);
+      handleMediaEvent(el, event);
+    }, true);
+  }
 
   function createRow(labelText, hasTooltip) {
     const row = document.createElement('div');
@@ -680,61 +663,27 @@
   }
 
   function findPlayingMedia() {
-    if (knownMediaElements.size === 0) {
-      collectMediaElementsOnce(document);
-    }
-
-    let bestCandidate = null;
-    let foundPlayingMedia = false;
+    let video = null;
+    let fallback = null;
+    let hasPlayback = false;
     for (const el of knownMediaElements) {
-      try {
-        if (!el.isConnected && (el.paused || el.ended)) {
-          dbg('Pruning disconnected & inactive media element');
-          knownMediaElements.delete(el);
-          continue;
-        }
-        if (!el.paused && !el.ended && el.readyState >= 2) {
-          foundPlayingMedia = true;
-          if (!meetsMinimumDimensions(el)) continue;
-          if (el.tagName === 'VIDEO' && el.videoWidth > 0) {
-            return el;
-          }
-          if (!bestCandidate) {
-            bestCandidate = el;
-          }
-        } else if (DEBUG) {
-          dbg('Skipping known media candidate:', {
-            tag: el.tagName,
-            paused: el.paused,
-            ended: el.ended,
-            readyState: el.readyState,
-            videoWidth: el.videoWidth,
-            isConnected: el.isConnected,
-            src: el.currentSrc || el.src
-          });
-        }
-      } catch (err) {
-        dbgWarn('Error inspecting media element, removing:', err);
-        knownMediaElements.delete(el);
+      if (el.paused || el.ended) {
+        if (!el.isConnected) knownMediaElements.delete(el);
+        continue;
+      }
+      hasPlayback = true;
+      if (el.readyState < 2 || video || !meetsMinimumDimensions(el)) continue;
+
+      if (el.tagName === 'VIDEO' && el.videoWidth > 0) {
+        video = el;
+      } else if (!fallback) {
+        fallback = el;
       }
     }
 
-    if (!bestCandidate && !foundPlayingMedia) {
-      collectMediaElementsOnce(document);
-      for (const el of knownMediaElements) {
-        try {
-          if (!el.paused && !el.ended && el.readyState >= 2) {
-            if (!meetsMinimumDimensions(el)) continue;
-            if (el.tagName === 'VIDEO' && el.videoWidth > 0) return el;
-            if (!bestCandidate) bestCandidate = el;
-          }
-        } catch (_) {
-          knownMediaElements.delete(el);
-        }
-      }
-    }
-
-    return bestCandidate;
+    if (hasPlayback) startPolling();
+    else stopPolling();
+    return video || fallback;
   }
 
   function tick() {
@@ -753,6 +702,7 @@
     }
 
     if (!playingEl) {
+      mediaResizeObserver.disconnect();
       activeMedia = null;
       if (hudContainer) hudContainer.classList.remove('visible');
       if (infoButton) infoButton.hidden = true;
@@ -769,6 +719,10 @@
         res: `${playingEl.videoWidth}x${playingEl.videoHeight}`,
         isConnected: playingEl.isConnected
       });
+      if (activeMedia !== playingEl) {
+        mediaResizeObserver.disconnect();
+        if (playingEl.isConnected) mediaResizeObserver.observe(playingEl);
+      }
       activeMedia = playingEl;
       lastFrameCount = 0;
       lastTimestamp = 0;
@@ -858,11 +812,16 @@
     updateHUDPosition(activeMedia);
   }
 
-  // Kick off a single check on load in case media is already playing
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', tick, { once: true });
-  } else {
+  // Discover existing players once, then rely on playback events and media hooks.
+  function discoverExistingMedia() {
+    collectMediaElementsOnce(document);
     tick();
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', discoverExistingMedia, { once: true });
+  } else {
+    discoverExistingMedia();
   }
 
   window.addEventListener('scroll', schedulePositionUpdate, { passive: true, capture: true });
@@ -882,7 +841,6 @@
     settings = nextSettings;
     if (hudContainer) applyHudAppearance(hudContainer, settings);
     if (settingsReady && !hudDismissed) {
-      if (activeMedia) startPolling();
       tick();
     }
   }).then(() => {
