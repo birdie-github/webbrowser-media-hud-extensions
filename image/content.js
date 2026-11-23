@@ -18,6 +18,9 @@
   let lastContextPoint = { x: 0, y: 0, time: 0 };
   let isPointerOverBadge = false;
   let rafId = null;
+  let hoverFrameId = null;
+  let hoverX = 0;
+  let hoverY = 0;
   let diagnosticRequestId = 0;
 
   // Per-URL parsed diagnostics cache
@@ -170,13 +173,7 @@
     });
     badgeBtn.addEventListener("mouseleave", (e) => {
       isPointerOverBadge = false;
-      if (!pinnedImg && hoveredImg) {
-        const under = findQualifyingImageAtPoint(e.clientX, e.clientY);
-        if (under !== hoveredImg) {
-          hoveredImg = null;
-          hideAll();
-        }
-      }
+      scheduleHoverHitTest(e.clientX, e.clientY);
     });
     badgeBtn.addEventListener("click", (e) => {
       e.preventDefault();
@@ -473,59 +470,69 @@
     }
   }
 
-  // Deep Shadow DOM & Overlay-Piercing Image Hit-Testing
+  // Resolve direct hits first, including images inside open or closed shadow roots.
   function findQualifyingImageAtPoint(x, y) {
     const visitedRoots = new Set();
-    let fallbackBgCandidate = null;
+    const wrappers = new Set();
 
     function searchRoot(root) {
-      if (!root || visitedRoots.has(root)) return null;
+      if (visitedRoots.has(root) || typeof root.elementsFromPoint !== "function") return null;
       visitedRoots.add(root);
 
-      const elements = typeof root.elementsFromPoint === "function"
-        ? root.elementsFromPoint(x, y)
-        : [];
-
-      for (const el of elements) {
-        if (el === hostEl) continue;
-
-        // Priority 1: Direct <img> element
-        if (el.nodeName === "IMG" && isQualifyingImage(el)) {
-          return el;
+      for (const el of root.elementsFromPoint(x, y)) {
+        if (el === hostEl || el === document.body || el === document.documentElement) continue;
+        if (el.nodeName === "IMG") {
+          if (isQualifyingImage(el)) return el;
+          continue;
         }
 
-        if (el.nodeName === "PICTURE") {
-          const picImg = el.querySelector("img");
-          if (picImg && isQualifyingImage(picImg) && isPointInsideRect(x, y, picImg.getBoundingClientRect())) {
-            return picImg;
-          }
+        const shadow = el.openOrClosedShadowRoot || el.shadowRoot;
+        if (shadow) {
+          const hit = searchRoot(shadow);
+          if (hit) return hit;
         }
-
-        // Priority 2: Check inside child <img> of a gallery wrapper/slide if no direct hit yet
-        if (!fallbackBgCandidate && el.querySelector) {
-          const childImgs = el.querySelectorAll("img");
-          for (const ci of childImgs) {
-            if (isQualifyingImage(ci) && isPointInsideRect(x, y, ci.getBoundingClientRect())) {
-              return ci;
-            }
-          }
-        }
-
-        // Priority 3: Element with a qualifying CSS background-image (e.g., GSMArena #image0 lightbox)
-        if (!fallbackBgCandidate && el.nodeName !== "IMG" && isQualifyingImage(el)) {
-          fallbackBgCandidate = el;
-        }
-
-        const openOrClosedRoot = el.openOrClosedShadowRoot || el.shadowRoot;
-        if (openOrClosedRoot) {
-          const nestedMatch = searchRoot(openOrClosedRoot);
-          if (nestedMatch) return nestedMatch;
-        }
+        wrappers.add(el);
       }
-      return fallbackBgCandidate;
+      return null;
     }
 
-    return searchRoot(document);
+    const directHit = searchRoot(document);
+    if (directHit) return directHit;
+
+    // Some galleries put an overlay over an image that is itself absent from
+    // the hit stack. Inspect nearby descendants with one budget per hit test.
+    const maxDepth = 3;
+    let remaining = 64;
+    const searchedDepth = new Map();
+
+    function searchChildren(parent, depth) {
+      if (depth === 0 || (searchedDepth.get(parent) || 0) >= depth) return null;
+      searchedDepth.set(parent, depth);
+      for (let child = parent.firstElementChild; child && remaining > 0; child = child.nextElementSibling) {
+        remaining--;
+        if (child.nodeName === "IMG") {
+          if (isPointInsideRect(x, y, child.getBoundingClientRect()) && isQualifyingImage(child)) {
+            return child;
+          }
+        } else {
+          const match = searchChildren(child, depth - 1);
+          if (match) return match;
+        }
+      }
+      return null;
+    }
+
+    for (const wrapper of wrappers) {
+      if (remaining === 0) break;
+      const hit = searchChildren(wrapper, maxDepth);
+      if (hit) return hit;
+    }
+
+    // CSS backgrounds are supported even when the descendant budget runs out.
+    for (const wrapper of wrappers) {
+      if (isQualifyingImage(wrapper)) return wrapper;
+    }
+    return null;
   }
 
   function isPointInsideRect(x, y, rect) {
@@ -736,6 +743,7 @@
     ensureHudDOM();
     if (!containerEl) return;
 
+    isPointerOverBadge = false;
     pinnedImg = img;
     hoveredImg = img;
     activeTargetUrl = getTargetUrl(img);
@@ -756,6 +764,7 @@
   }
 
   function hideAll() {
+    isPointerOverBadge = false;
     stopActiveTargetWatchers();
     if (!containerEl) return;
     containerEl.classList.add("hud-hidden");
@@ -1435,23 +1444,30 @@
     }
   }
 
-  // Pointer & Context-Menu Event Listeners
-  window.addEventListener("mousemove", (e) => {
-    if (pinnedImg) return;
-    if (!settings.showHoverButton) return;
-    if (isPointerOverBadge) return;
+  function scheduleHoverHitTest(x, y) {
+    if (pinnedImg || !settings.showHoverButton || isPointerOverBadge) return;
+    hoverX = x;
+    hoverY = y;
+    if (hoverFrameId !== null) return;
 
-    const candidate = findQualifyingImageAtPoint(e.clientX, e.clientY);
-    if (candidate !== hoveredImg) {
-      if (candidate) {
+    hoverFrameId = window.requestAnimationFrame(() => {
+      hoverFrameId = null;
+      if (pinnedImg || !settings.showHoverButton || isPointerOverBadge) return;
+
+      const candidate = findQualifyingImageAtPoint(hoverX, hoverY);
+      if (candidate && candidate !== hoveredImg) {
         showHoverBadge(candidate);
-      } else {
+      } else if (candidate) {
+        schedulePositionUpdate();
+      } else if (hoveredImg) {
         hoveredImg = null;
         hideAll();
       }
-    } else if (candidate) {
-      schedulePositionUpdate();
-    }
+    });
+  }
+
+  window.addEventListener("mousemove", (e) => {
+    scheduleHoverHitTest(e.clientX, e.clientY);
   }, { capture: true, passive: true });
 
   window.addEventListener("contextmenu", (e) => {
