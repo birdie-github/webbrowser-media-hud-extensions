@@ -122,18 +122,20 @@
       <label for="imageButtonMode">Show image info button</label>
       <select id="imageButtonMode" aria-describedby="imageModeHint menuHint">
         <option value="hover">On hover</option>
-        <option value="auto">Automatically</option>
+        <option value="auto">Automatically for image elements</option>
         <option value="never">Never*</option>
       </select>
     </div>
-    <p class="hint" id="imageModeHint">Automatically shows ℹ️ on visible images that meet the minimum dimensions.
-      Hover to inspect CSS background images. Image diagnostics run when you open the panel.</p>
+    <p class="hint" id="imageModeHint">In automatic mode, ℹ️ appears on visible HTML image elements (&lt;img&gt;) that meet the minimum dimensions.
+      Some sites display artwork as a CSS background. For those images, ℹ️ appears only when you hover.
+      Click ℹ️ to open the panel and load image diagnostics.</p>
     <div class="checkbox-row">
       <input type="checkbox" id="enableContextMenu" checked>
       <label for="enableContextMenu">Add "Show Image Info HUD" to right-click context menu</label>
     </div>
     <div class="hint" id="menuHint">
-      * Never relies on the right-click menu. CSS backgrounds belong to page elements. If the add-on cannot identify the background under the pointer, “Show Image Info HUD” is unavailable.
+      * Never hides all ℹ️ buttons and keeps the right-click menu enabled. For a CSS background,
+      “Show Image Info HUD” is available only if the add-on can identify the image under the pointer.
     </div>
   </div>
 
