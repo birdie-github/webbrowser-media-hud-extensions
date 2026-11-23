@@ -302,7 +302,7 @@
     if (rafId !== null || !activeMedia) return;
     rafId = requestAnimationFrame(() => {
       rafId = null;
-      if (activeMedia && hudContainer && (hudContainer.classList.contains('visible') || !infoButton.hidden)) {
+      if (activeMedia && hudContainer && (!hudContainer.hidden || !infoButton.hidden)) {
         updateHUDPosition(activeMedia);
       }
     });
@@ -317,20 +317,8 @@
     }, true);
   }
 
-  function createRow(labelText, hasTooltip) {
-    const row = document.createElement('div');
-    row.className = 'row';
-
-    const { label, val } = createHudFields(labelText);
-    if (hasTooltip) val.classList.add("has-tooltip");
-
-    row.appendChild(label);
-    row.appendChild(val);
-    return { row, val };
-  }
-
   function buildPlaybackHud() {
-    const { host, shadow } = createHudHost(playbackHudCSS);
+    const { host, shadow } = createHudHost();
     hudHost = host;
     hudHost.id = '__media-telemetry-hud-host__';
     hudHost.style.cssText = [
@@ -346,17 +334,17 @@
       'padding: 0 !important'
     ].join(';');
 
-    hudContainer = document.createElement('div');
-    hudContainer.className = 'hud hud-panel hud-typography';
-
-    infoButton = createHudButton('info-badge', 'ℹ️', 'Show Playback Info HUD', () => {
+    infoButton = createHudBadge('Show Playback Info HUD', () => {
       expanded = true;
       tick();
-      if (hudContainer.classList.contains('visible')) closeButton.focus();
+      if (!hudContainer.hidden) closeButton.focus();
     });
     infoButton.hidden = true;
 
-    closeButton = createHudButton('close-btn', '×', 'Hide HUD until page reload', () => {
+    const hud = createHudPanel({
+      resRow: "RES", fpsRow: "FPS", vcodecRow: "VCODEC", modeRow: "MODE",
+      acodecRow: "ACODEC", containerRow: "CONTAINER"
+    }, () => {
       if (settings.showInfoButton) {
         expanded = false;
         tick();
@@ -364,27 +352,14 @@
         return;
       }
       hudDismissed = true;
-      hudContainer.classList.remove('visible');
+      hudContainer.hidden = true;
       stopPolling();
       dbg('HUD dismissed by user until reload');
     });
-    hudContainer.appendChild(closeButton);
-
-    const resRow = createRow('RES', false);
-    const fpsRow = createRow('FPS', false);
-    const vcodecRow = createRow('VCODEC', true);
-    const modeRow = createRow('MODE', false);
-    const acodecRow = createRow('ACODEC', true);
-    const containerRow = createRow('CONTAINER', false);
-
-    hudContainer.appendChild(resRow.row);
-    hudContainer.appendChild(fpsRow.row);
-    hudContainer.appendChild(vcodecRow.row);
-    hudContainer.appendChild(modeRow.row);
-    hudContainer.appendChild(acodecRow.row);
-
-    hudContainer.appendChild(containerRow.row);
-    ui = { resRow, fpsRow, vcodecRow, modeRow, acodecRow, containerRow };
+    hudContainer = hud.panel;
+    hudContainer.hidden = true;
+    closeButton = hud.close;
+    ui = hud.rows;
 
     applyHudAppearance(hudContainer, settings);
     shadow.appendChild(hudContainer);
@@ -558,7 +533,7 @@
   function tick() {
     if (!settingsReady) return;
     if (hudDismissed) {
-      if (hudContainer) hudContainer.classList.remove('visible');
+      if (hudContainer) hudContainer.hidden = true;
       if (infoButton) infoButton.hidden = true;
       stopPolling();
       return;
@@ -573,7 +548,7 @@
     if (!playingEl) {
       mediaResizeObserver.disconnect();
       activeMedia = null;
-      if (hudContainer) hudContainer.classList.remove('visible');
+      if (hudContainer) hudContainer.hidden = true;
       if (infoButton) infoButton.hidden = true;
       return;
     }
@@ -599,7 +574,7 @@
     }
 
     if (!meetsMinimumDimensions(activeMedia)) {
-      if (hudContainer) hudContainer.classList.remove('visible');
+      if (hudContainer) hudContainer.hidden = true;
       if (infoButton) infoButton.hidden = true;
       lastTimestamp = 0;
       currentFps = 0;
@@ -611,7 +586,7 @@
     closeButton.setAttribute('aria-label', closeButton.title);
     infoButton.hidden = !settings.showInfoButton || expanded;
     if (!infoButton.hidden) {
-      hudContainer.classList.remove('visible');
+      hudContainer.hidden = true;
       lastTimestamp = 0;
       currentFps = 0;
       updateHUDPosition(activeMedia);
@@ -644,7 +619,7 @@
 
     const activeCodecs = resolveCodecsForElement(activeMedia);
     const container = getContainerHint(activeMedia);
-    ui.containerRow.row.classList.toggle('hidden', !container);
+    ui.containerRow.row.hidden = !container;
     ui.containerRow.val.textContent = container || '';
 
     const vCodecName = activeCodecs.video || 'Unknown';
@@ -658,20 +633,20 @@
       const dropped = quality ? quality.droppedVideoFrames : 0;
       const rateSuffix = rate !== 1 ? ` @${Number(rate.toFixed(2))}x` : '';
 
-      ui.resRow.row.classList.remove('hidden');
-      ui.fpsRow.row.classList.remove('hidden');
-      ui.vcodecRow.row.classList.remove('hidden');
-      ui.modeRow.row.classList.add('hidden');
+      ui.resRow.row.hidden = false;
+      ui.fpsRow.row.hidden = false;
+      ui.vcodecRow.row.hidden = false;
+      ui.modeRow.row.hidden = true;
 
       ui.resRow.val.textContent = `${activeMedia.videoWidth} × ${activeMedia.videoHeight}`;
       ui.fpsRow.val.textContent = `${currentFps.toFixed(1)}${rateSuffix} (${dropped} drop)`;
       ui.vcodecRow.val.textContent = vCodecName;
       ui.vcodecRow.val.setAttribute('data-tooltip', vCodecTooltip);
     } else {
-      ui.resRow.row.classList.add('hidden');
-      ui.fpsRow.row.classList.add('hidden');
-      ui.vcodecRow.row.classList.add('hidden');
-      ui.modeRow.row.classList.remove('hidden');
+      ui.resRow.row.hidden = true;
+      ui.fpsRow.row.hidden = true;
+      ui.vcodecRow.row.hidden = true;
+      ui.modeRow.row.hidden = false;
 
       ui.modeRow.val.textContent = 'Audio Only';
     }
@@ -679,7 +654,7 @@
     ui.acodecRow.val.textContent = aCodecName;
     ui.acodecRow.val.setAttribute('data-tooltip', aCodecTooltip);
 
-    hudContainer.classList.add('visible');
+    hudContainer.hidden = false;
     updateHUDPosition(activeMedia);
   }
 

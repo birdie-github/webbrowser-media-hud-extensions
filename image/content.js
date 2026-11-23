@@ -48,15 +48,7 @@
     schedulePositionUpdate();
   }
 
-  // Build Closed Shadow DOM strictly with createElement & textContent (TrustedTypes safe)
-  function createImageHeader() {
-    const headerEl = document.createElement("div");
-    headerEl.className = "hud-header";
-
-    const titleEl = document.createElement("span");
-    titleEl.className = "hud-title";
-    titleEl.textContent = "Info";
-
+  function createDownloadLink() {
     downloadBtn = document.createElement("a");
     downloadBtn.className = "hud-icon-btn";
     downloadBtn.title = "Download Image (Left-click to save, Middle-click to open)";
@@ -74,43 +66,14 @@
       triggerImageDownload(pinnedImg);
     }, true);
 
-    const closeBtn = createHudButton("hud-icon-btn", "×", "Close HUD", closeExpandedHud);
-
-    headerEl.appendChild(titleEl);
-    headerEl.appendChild(downloadBtn);
-    headerEl.appendChild(closeBtn);
-    return headerEl;
-  }
-
-  function createImageGrid() {
-    const gridEl = document.createElement("div");
-    gridEl.className = "hud-grid";
-
-    const fields = [
-      { key: "intrinsic", label: "INTRINSIC" },
-      { key: "displayed", label: "DISPLAYED" },
-      { key: "format", label: "FORMAT" },
-      { key: "size", label: "SIZE" },
-      { key: "details", label: "DETAILS" }
-    ];
-
-    rowElements = {};
-    for (const f of fields) {
-      const { label, val } = createHudFields(f.label);
-      val.textContent = "\u2026";
-
-      gridEl.appendChild(label);
-      gridEl.appendChild(val);
-      rowElements[f.key] = { val };
-    }
-    return gridEl;
+    return downloadBtn;
   }
 
   function ensureHudDOM() {
     if (hostEl && document.body && document.body.contains(hostEl)) return;
     if (!document.body) return;
 
-    const { host, shadow } = createHudHost(imageHudCSS);
+    const { host, shadow } = createHudHost();
     hostEl = host;
     hostEl.style.all = "initial";
     hostEl.style.position = "fixed";
@@ -125,9 +88,10 @@
     containerEl.className = "hud-anchor hud-typography hud-hidden";
 
     // State 2: Floating Hover Badge (ℹ️)
-    badgeBtn = createHudButton("info-badge hud-hidden", "ℹ️", "Inspect Image Format & Resolution", () => {
+    badgeBtn = createHudBadge("Inspect Image Format & Resolution", () => {
       if (hoveredImg) openExpandedHud(hoveredImg);
     });
+    badgeBtn.classList.add("hud-hidden");
     badgeBtn.addEventListener("mouseenter", () => {
       isPointerOverBadge = true;
     });
@@ -137,14 +101,13 @@
     });
 
     // State 3: Expanded HUD Panel
-    panelEl = document.createElement("div");
-    panelEl.className = "hud-panel hud-hidden";
-    panelEl.addEventListener("click", (e) => {
-      e.stopPropagation();
-    });
-
-    panelEl.appendChild(createImageHeader());
-    panelEl.appendChild(createImageGrid());
+    const hud = createHudPanel({
+      intrinsic: "INTRINSIC", displayed: "DISPLAYED", format: "FORMAT",
+      size: "SIZE", details: "DETAILS"
+    }, closeExpandedHud, createDownloadLink());
+    panelEl = hud.panel;
+    panelEl.classList.add("hud-hidden");
+    rowElements = hud.rows;
 
     containerEl.appendChild(badgeBtn);
     containerEl.appendChild(panelEl);

@@ -40,7 +40,6 @@
         "shared/settings.js",
         "shared/appearance.js",
         "shared/hud.js",
-        "hud-style.js",
         "content.js"
       ],
       "run_at": "document_start",
