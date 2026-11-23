@@ -872,8 +872,11 @@
   function analyzeHeaderBytes(bytes, mimeHint, urlHint) {
     const b = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes || []);
     const len = b.length;
+    const view = new DataView(b.buffer, b.byteOffset, len);
 
     let format = null;
+    let width = 0;
+    let height = 0;
     let details = [];
     let inferredMime = mimeHint || null;
 
@@ -895,6 +898,10 @@
     ) {
       format = "PNG";
       inferredMime = inferredMime || "image/png";
+      if (view.getUint32(4) === 0x0d0a1a0a && view.getUint32(8) === 13 && ascii(12, 4) === "IHDR") {
+        width = view.getUint32(16);
+        height = view.getUint32(20);
+      }
       const bitDepth = b[24];
       const colorType = b[25];
       const interlace = b[28];
@@ -934,12 +941,20 @@
           offset++;
           continue;
         }
-        if (marker === 0xD8 || marker === 0xD9 || (marker >= 0xD0 && marker <= 0xD7)) {
+        if (marker === 0xD8 || (marker >= 0xD0 && marker <= 0xD7)) {
           offset += 2;
           continue;
         }
+        if (marker === 0xDA || marker === 0xD9) break;
         const segLen = (b[offset + 2] << 8) | b[offset + 3];
         if (segLen < 2) break;
+
+        // SOF markers carry the encoded raster dimensions.
+        if (marker >= 0xC0 && marker <= 0xCF && ![0xC4, 0xC8, 0xCC].includes(marker)
+            && segLen >= 8 && offset + 10 <= len) {
+          height = view.getUint16(offset + 5);
+          width = view.getUint16(offset + 7);
+        }
 
         // SOF0 (Baseline) or SOF2 (Progressive)
         if (marker === 0xC0 || marker === 0xC2) {
@@ -973,29 +988,41 @@
     // 3. WebP: RIFF....WEBP
     else if (len >= 16 && ascii(0, 4) === "RIFF" && ascii(8, 4) === "WEBP") {
       inferredMime = inferredMime || "image/webp";
-      const chunk = ascii(12, 4);
-      if (chunk === "VP8 ") {
-        format = "WebP (Lossy)";
-        details.push("8-bit YUV 4:2:0");
-      } else if (chunk === "VP8L") {
-        format = "WebP (Lossless)";
-        details.push("8-bit RGBA");
-      } else if (chunk === "VP8X" && len >= 30) {
-        const flags = b[20];
-        const hasAlpha = Boolean(flags & 0x10);
-        const isAnimated = Boolean(flags & 0x02);
-        const subChunks = ascii(30, len - 30);
-        if (subChunks.includes("VP8L") && !subChunks.includes("VP8 ")) {
+      format = "WebP";
+      const riffEnd = view.getUint32(4, true) + 8;
+      for (let offset = 12; offset + 8 <= Math.min(len, riffEnd);) {
+        const chunk = ascii(offset, 4);
+        const size = view.getUint32(offset + 4, true);
+        const data = offset + 8;
+        const next = data + size + (size % 2);
+        if (next > riffEnd) break;
+
+        if (chunk === "VP8X" && size === 10 && data + 10 <= len) {
+          const flags = b[data];
+          if (flags & 0x02) details.push("Animated");
+          if (flags & 0x10) details.push("Alpha");
+          width = 1 + (view.getUint32(data + 4, true) & 0xffffff);
+          height = 1 + (view.getUint32(data + 6, true) >>> 8);
+        } else if (chunk === "VP8 " && size >= 10 && data + 10 <= len
+            && b[data + 3] === 0x9d && b[data + 4] === 0x01 && b[data + 5] === 0x2a) {
+          format = "WebP (Lossy)";
+          details.push("8-bit YUV 4:2:0");
+          if (!width && !height) {
+            width = view.getUint16(data + 6, true) & 0x3fff;
+            height = view.getUint16(data + 8, true) & 0x3fff;
+          }
+          break;
+        } else if (chunk === "VP8L" && size >= 5 && data + 5 <= len && b[data] === 0x2f) {
           format = "WebP (Lossless)";
-        } else if (subChunks.includes("VP8 ")) {
-          format = "WebP (Lossy)";
-        } else {
-          format = "WebP (Lossy)";
+          details.push("8-bit RGBA");
+          if (!width && !height) {
+            const packed = view.getUint32(data + 1, true);
+            width = 1 + (packed & 0x3fff);
+            height = 1 + ((packed >>> 14) & 0x3fff);
+          }
+          break;
         }
-        if (isAnimated) details.push("Animated");
-        if (hasAlpha) details.push("Alpha");
-      } else {
-        format = "WebP (Lossy)";
+        offset = next;
       }
     }
     // 4. AVIF: ....ftypavif / avis / mif1
@@ -1011,14 +1038,13 @@
         // Check av1C box for bit depth / chroma subsampling if present in first 512 bytes
         const fullStr = ascii(0, len);
         const av1cPos = fullStr.indexOf("av1C");
-        if (av1cPos !== -1 && av1cPos + 8 < len) {
+        if (av1cPos >= 4 && av1cPos + 8 <= len && b[av1cPos + 4] === 0x81) {
           const byte2 = b[av1cPos + 6];
-          const byte3 = b[av1cPos + 7];
           const highBitdepth = Boolean(byte2 & 0x40);
           const twelveBit = Boolean(byte2 & 0x20);
           const monochrome = Boolean(byte2 & 0x10);
-          const subX = Boolean(byte3 & 0x80);
-          const subY = Boolean(byte3 & 0x40);
+          const subX = Boolean(byte2 & 0x08);
+          const subY = Boolean(byte2 & 0x04);
 
           const depth = highBitdepth ? (twelveBit ? 12 : 10) : 8;
           details.push(`${depth}-bit`);
@@ -1047,6 +1073,8 @@
     else if (len >= 13 && (ascii(0, 6) === "GIF89a" || ascii(0, 6) === "GIF87a")) {
       format = "GIF";
       inferredMime = inferredMime || "image/gif";
+      width = view.getUint16(6, true);
+      height = view.getUint16(8, true);
       const packed = b[10];
       const bpp = (packed & 0x07) + 1;
       details.push(`${bpp}-bit Palette`);
@@ -1063,7 +1091,15 @@
     else if (len >= 29 && b[0] === 0x42 && b[1] === 0x4D) {
       format = "BMP";
       inferredMime = inferredMime || "image/bmp";
-      const bpp = b[28] | (b[29] << 8);
+      const dibSize = view.getUint32(14, true);
+      if (dibSize === 12) {
+        width = view.getUint16(18, true);
+        height = view.getUint16(20, true);
+      } else if (dibSize >= 40) {
+        width = view.getInt32(18, true);
+        height = Math.abs(view.getInt32(22, true));
+      }
+      const bpp = dibSize === 12 ? view.getUint16(24, true) : (b[28] | (b[29] << 8));
       if (bpp) details.push(`${bpp}-bit`);
     }
     // 8. ICO: 00 00 01 00
@@ -1093,13 +1129,14 @@
       ? `${details.join(" \u00B7 ")} (${mimeLabel})`
       : mimeLabel;
 
-    return { format, detailsText, mime: mimeLabel };
+    const pixelCount = width > 0 && height > 0 ? width * height : 0;
+    return { format, detailsText, mime: mimeLabel, pixelCount };
   }
 
   function resolveFormatFromMimeOrUrl(mime, url) {
     const m = (mime || "").toLowerCase();
     if (m.includes("avif")) return "AVIF";
-    if (m.includes("webp")) return "WebP (Lossy)";
+    if (m.includes("webp")) return "WebP";
     if (m.includes("jxl")) return "JPEG XL";
     if (m.includes("jpeg") || m.includes("jpg")) return "JPEG";
     if (m.includes("apng")) return "APNG";
@@ -1113,7 +1150,7 @@
       try {
         const pathname = new URL(url, location.href).pathname.toLowerCase();
         if (pathname.endsWith(".avif")) return "AVIF";
-        if (pathname.endsWith(".webp")) return "WebP (Lossy)";
+        if (pathname.endsWith(".webp")) return "WebP";
         if (pathname.endsWith(".jxl")) return "JPEG XL";
         if (pathname.endsWith(".jpg") || pathname.endsWith(".jpeg")) return "JPEG";
         if (pathname.endsWith(".apng")) return "APNG";
@@ -1130,6 +1167,7 @@
   function mimeFromFormat(format) {
     const map = {
       "AVIF": "image/avif",
+      "WebP": "image/webp",
       "WebP (Lossy)": "image/webp",
       "WebP (Lossless)": "image/webp",
       "JPEG XL": "image/jxl",
@@ -1147,6 +1185,7 @@
   function extensionFromFormat(format) {
     const map = {
       "AVIF": ".avif",
+      "WebP": ".webp",
       "WebP (Lossy)": ".webp",
       "WebP (Lossless)": ".webp",
       "JPEG XL": ".jxl",
@@ -1351,6 +1390,7 @@
     const result = {
       format: analyzed.format,
       byteSize,
+      pixelCount: analyzed.pixelCount,
       detailsText: analyzed.detailsText
     };
 
@@ -1389,12 +1429,10 @@
     rowElements.format.val.textContent = diag.format;
     rowElements.details.val.textContent = diag.detailsText;
 
-    const { nw, nh } = getTargetIntrinsicSize(img);
-    const totalPixels = nw * nh;
     const formattedSize = formatBytes(diag.byteSize);
 
-    if (formattedSize && totalPixels > 0) {
-      const bpp = (diag.byteSize * 8) / totalPixels;
+    if (formattedSize && diag.pixelCount > 0) {
+      const bpp = (diag.byteSize * 8) / diag.pixelCount;
       rowElements.size.val.textContent = `${formattedSize} (${bpp.toFixed(2)} bpp)`;
     } else if (formattedSize) {
       rowElements.size.val.textContent = formattedSize;
