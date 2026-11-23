@@ -7,7 +7,7 @@ function applyHudAppearance(panel, settings) {
   panel.style.setProperty("--hud-text", settings.panelText);
 }
 
-const hudBadgeSize = 13;
+const hudBadgeSize = 26;
 
 const hudBaseCSS = `
   .hud-typography {
@@ -36,7 +36,7 @@ const hudBaseCSS = `
     background: transparent;
     border: 0;
     color: #38bdf8;
-    font-size: ${hudBadgeSize}px;
+    font-size: 13px;
     line-height: 1;
     cursor: pointer;
     opacity: 0.82;
