@@ -26,6 +26,7 @@
         "shared/settings.js",
         "shared/appearance.js",
         "shared/hud.js",
+        "hud-style.js",
         "image-probe.js",
         "content.js"
       ],

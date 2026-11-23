@@ -4,16 +4,7 @@ function createHudHost(extensionCSS) {
   const host = document.createElement("div");
   const shadow = host.attachShadow({ mode: "closed" });
   const style = document.createElement("style");
-  style.textContent = hudInfoButtonCSS + `
-    .hud-panel {
-      background: color-mix(in srgb, var(--hud-background, #0f1117) var(--hud-opacity, 88%), transparent);
-      backdrop-filter: blur(6px);
-      border: 1px solid rgba(56, 189, 248, 0.45);
-      border-radius: 6px;
-    }
-    .hud-label { color: #94a3b8; font-weight: 600; }
-    .hud-value { color: var(--hud-text, #38bdf8); text-align: right; }
-  ` + extensionCSS;
+  style.textContent = hudBaseCSS + extensionCSS;
   shadow.appendChild(style);
   return { host, shadow };
 }
