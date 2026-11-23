@@ -1,7 +1,7 @@
 {
   "manifest_version": 2,
   "name": "Image Format & Resolution HUD",
-  "version": "0.2",
+  "version": "1.0",
   "description": "Displays an unobtrusive technical diagnostics HUD (format, bit depth, resolution, scaling, file size, and BPP) for qualifying images.",
   "permissions": [
     "menus",

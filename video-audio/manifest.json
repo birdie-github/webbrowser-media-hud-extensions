@@ -1,7 +1,7 @@
 {
   "manifest_version": 2,
   "name": "Video & Audio Codec HUD",
-  "version": "0.9",
+  "version": "1.0",
   "description": "Displays real-time video resolution, FPS, dropped frames, and video/audio codec details in an upper-right HUD when media plays",
   "homepage_url": "https://github.com/birdie-github/video-audio-codec-hud",
   "incognito": "spanning",
