@@ -19,7 +19,7 @@ def package(target):
     with NamedTemporaryFile(dir=destination.parent, delete=False) as temporary:
         staging = Path(temporary.name)
     try:
-        with ZipFile(staging, "w", ZIP_DEFLATED) as archive:
+        with ZipFile(staging, "w", ZIP_DEFLATED, strict_timestamps=False) as archive:
             for path in sorted(source.rglob("*")):
                 if path.is_file() and path != source / "icons/source.jpg":
                     archive.write(path, path.relative_to(source))
