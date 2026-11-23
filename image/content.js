@@ -31,11 +31,9 @@
 
   // Closed Shadow DOM UI references
   let hostEl = null;
-  let shadowRoot = null;
   let containerEl = null;
   let badgeBtn = null;
   let panelEl = null;
-  let closeBtn = null;
   let downloadBtn = null;
   let rowElements = {};
 
@@ -51,145 +49,89 @@
   }
 
   // Build Closed Shadow DOM strictly with createElement & textContent (TrustedTypes safe)
-  function ensureHudDOM() {
-    if (hostEl && document.body && document.body.contains(hostEl)) return;
-    if (!document.body) return;
+  const panelCSS = `
+    :host {
+      all: initial;
+    }
+    .hud-anchor {
+      position: fixed;
+      top: 0;
+      left: 0;
+      z-index: 2147483647;
+      pointer-events: auto;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      font-size: var(--hud-font-size, 11.5px);
+      line-height: 1.45;
+      color: #38bdf8;
+      user-select: none;
+      -webkit-user-select: none;
+      box-sizing: border-box;
+    }
+    .hud-hidden {
+      display: none !important;
+    }
 
-    hostEl = document.createElement("div");
-    hostEl.style.all = "initial";
-    hostEl.style.position = "fixed";
-    hostEl.style.top = "0px";
-    hostEl.style.left = "0px";
-    hostEl.style.width = "0px";
-    hostEl.style.height = "0px";
-    hostEl.style.zIndex = "2147483647";
-    hostEl.style.pointerEvents = "none";
+    .hud-panel {
+      min-width: 248px;
+      max-width: 340px;
+      padding: 8px 10px 9px 10px;
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.65);
+      color: #38bdf8;
+      user-select: text;
+      -webkit-user-select: text;
+    }
+    .hud-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 6px;
+      border-bottom: 1px solid rgba(56, 189, 248, 0.22);
+      padding-bottom: 4px;
+      margin-bottom: 6px;
+    }
+    .hud-title {
+      font-weight: 700;
+      font-size: 10.5px;
+      letter-spacing: 0.08em;
+      color: #94a3b8;
+      text-transform: uppercase;
+      margin-right: auto;
+    }
+    .hud-icon-btn {
+      all: unset;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 18px;
+      height: 18px;
+      border-radius: 4px;
+      color: #94a3b8;
+      font-size: 14px;
+      line-height: 1;
+      cursor: pointer;
+      transition: color 0.12s ease, background 0.12s ease;
+    }
+    .hud-icon-btn:hover {
+      color: #38bdf8;
+      background: rgba(56, 189, 248, 0.16);
+    }
+    .hud-grid {
+      display: grid;
+      grid-template-columns: auto 1fr;
+      column-gap: 10px;
+      row-gap: 3px;
+      align-items: baseline;
+    }
+    .hud-label {
+      letter-spacing: 0.03em;
+      white-space: nowrap;
+    }
+    .hud-value {
+      word-break: break-word;
+    }
+  `;
 
-    shadowRoot = hostEl.attachShadow({ mode: "closed" });
-
-    const styleEl = document.createElement("style");
-    styleEl.textContent = `
-      :host {
-        all: initial;
-      }
-      .hud-anchor {
-        position: fixed;
-        top: 0;
-        left: 0;
-        z-index: 2147483647;
-        pointer-events: auto;
-        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-        font-size: var(--hud-font-size, 11.5px);
-        line-height: 1.45;
-        color: #38bdf8;
-        user-select: none;
-        -webkit-user-select: none;
-        box-sizing: border-box;
-      }
-      .hud-hidden {
-        display: none !important;
-      }
-      ${hudInfoButtonCSS}
-      .hud-panel {
-        min-width: 248px;
-        max-width: 340px;
-        background: color-mix(in srgb, var(--hud-background, #0f1117) var(--hud-opacity, 88%), transparent);
-        backdrop-filter: blur(6px);
-        border: 1px solid rgba(56, 189, 248, 0.45);
-        border-radius: 6px;
-        padding: 8px 10px 9px 10px;
-        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.65);
-        color: #38bdf8;
-        user-select: text;
-        -webkit-user-select: text;
-      }
-      .hud-header {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        gap: 6px;
-        border-bottom: 1px solid rgba(56, 189, 248, 0.22);
-        padding-bottom: 4px;
-        margin-bottom: 6px;
-      }
-      .hud-title {
-        font-weight: 700;
-        font-size: 10.5px;
-        letter-spacing: 0.08em;
-        color: #94a3b8;
-        text-transform: uppercase;
-        margin-right: auto;
-      }
-      .hud-icon-btn {
-        all: unset;
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        width: 18px;
-        height: 18px;
-        border-radius: 4px;
-        color: #94a3b8;
-        font-size: 14px;
-        line-height: 1;
-        cursor: pointer;
-        transition: color 0.12s ease, background 0.12s ease;
-      }
-      .hud-icon-btn:hover {
-        color: #38bdf8;
-        background: rgba(56, 189, 248, 0.16);
-      }
-      .hud-grid {
-        display: grid;
-        grid-template-columns: auto 1fr;
-        column-gap: 10px;
-        row-gap: 3px;
-        align-items: baseline;
-      }
-      .hud-label {
-        color: #94a3b8;
-        font-weight: 600;
-        letter-spacing: 0.03em;
-        white-space: nowrap;
-      }
-      .hud-value {
-        color: var(--hud-text, #38bdf8);
-        text-align: right;
-        word-break: break-word;
-      }
-    `;
-
-    containerEl = document.createElement("div");
-    containerEl.className = "hud-anchor hud-hidden";
-
-    // State 2: Floating Hover Badge (ℹ️)
-    badgeBtn = document.createElement("button");
-    badgeBtn.type = "button";
-    badgeBtn.className = "info-badge hud-hidden";
-    badgeBtn.title = "Inspect Image Format & Resolution";
-    badgeBtn.textContent = "\u2139\uFE0F";
-
-    badgeBtn.addEventListener("mouseenter", () => {
-      isPointerOverBadge = true;
-    });
-    badgeBtn.addEventListener("mouseleave", (e) => {
-      isPointerOverBadge = false;
-      scheduleHoverHitTest(e.clientX, e.clientY);
-    });
-    badgeBtn.addEventListener("click", (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      if (hoveredImg) {
-        openExpandedHud(hoveredImg);
-      }
-    }, true);
-
-    // State 3: Expanded HUD Panel
-    panelEl = document.createElement("div");
-    panelEl.className = "hud-panel hud-hidden";
-    panelEl.addEventListener("click", (e) => {
-      e.stopPropagation();
-    });
-
+  function createImageHeader() {
     const headerEl = document.createElement("div");
     headerEl.className = "hud-header";
 
@@ -214,21 +156,15 @@
       triggerImageDownload(pinnedImg);
     }, true);
 
-    closeBtn = document.createElement("button");
-    closeBtn.type = "button";
-    closeBtn.className = "hud-icon-btn";
-    closeBtn.title = "Close HUD";
-    closeBtn.textContent = "\u00D7";
-    closeBtn.addEventListener("click", (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      closeExpandedHud();
-    }, true);
+    const closeBtn = createHudButton("hud-icon-btn", "×", "Close HUD", closeExpandedHud);
 
     headerEl.appendChild(titleEl);
     headerEl.appendChild(downloadBtn);
     headerEl.appendChild(closeBtn);
+    return headerEl;
+  }
 
+  function createImageGrid() {
     const gridEl = document.createElement("div");
     gridEl.className = "hud-grid";
 
@@ -242,26 +178,59 @@
 
     rowElements = {};
     for (const f of fields) {
-      const lbl = document.createElement("div");
-      lbl.className = "hud-label";
-      lbl.textContent = f.label;
-
-      const val = document.createElement("div");
-      val.className = "hud-value";
+      const { label, val } = createHudFields(f.label);
       val.textContent = "\u2026";
 
-      gridEl.appendChild(lbl);
+      gridEl.appendChild(label);
       gridEl.appendChild(val);
-      rowElements[f.key] = { lbl, val };
+      rowElements[f.key] = { val };
     }
+    return gridEl;
+  }
 
-    panelEl.appendChild(headerEl);
-    panelEl.appendChild(gridEl);
+  function ensureHudDOM() {
+    if (hostEl && document.body && document.body.contains(hostEl)) return;
+    if (!document.body) return;
+
+    const { host, shadow } = createHudHost(panelCSS);
+    hostEl = host;
+    hostEl.style.all = "initial";
+    hostEl.style.position = "fixed";
+    hostEl.style.top = "0px";
+    hostEl.style.left = "0px";
+    hostEl.style.width = "0px";
+    hostEl.style.height = "0px";
+    hostEl.style.zIndex = "2147483647";
+    hostEl.style.pointerEvents = "none";
+
+    containerEl = document.createElement("div");
+    containerEl.className = "hud-anchor hud-hidden";
+
+    // State 2: Floating Hover Badge (ℹ️)
+    badgeBtn = createHudButton("info-badge hud-hidden", "ℹ️", "Inspect Image Format & Resolution", () => {
+      if (hoveredImg) openExpandedHud(hoveredImg);
+    });
+    badgeBtn.addEventListener("mouseenter", () => {
+      isPointerOverBadge = true;
+    });
+    badgeBtn.addEventListener("mouseleave", (e) => {
+      isPointerOverBadge = false;
+      scheduleHoverHitTest(e.clientX, e.clientY);
+    });
+
+    // State 3: Expanded HUD Panel
+    panelEl = document.createElement("div");
+    panelEl.className = "hud-panel hud-hidden";
+    panelEl.addEventListener("click", (e) => {
+      e.stopPropagation();
+    });
+
+    panelEl.appendChild(createImageHeader());
+    panelEl.appendChild(createImageGrid());
 
     containerEl.appendChild(badgeBtn);
     containerEl.appendChild(panelEl);
-    shadowRoot.appendChild(styleEl);
-    shadowRoot.appendChild(containerEl);
+    shadow.appendChild(containerEl);
     applyHudAppearance(containerEl, settings);
     document.body.appendChild(hostEl);
   }

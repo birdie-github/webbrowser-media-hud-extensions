@@ -321,16 +321,153 @@
     const row = document.createElement('div');
     row.className = 'row';
 
-    const label = document.createElement('span');
-    label.className = 'label';
-    label.textContent = labelText;
-
-    const val = document.createElement('span');
-    val.className = hasTooltip ? 'val has-tooltip' : 'val';
+    const { label, val } = createHudFields(labelText);
+    if (hasTooltip) val.classList.add("has-tooltip");
 
     row.appendChild(label);
     row.appendChild(val);
     return { row, val };
+  }
+
+  const panelCSS = `
+
+    .info-badge { pointer-events: auto; }
+    .hud {
+      color: #f8fafc;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      font-size: var(--hud-font-size, 11.5px);
+      line-height: 1.45;
+      padding: 7px 22px 7px 11px;
+      position: relative;
+      box-shadow: 0 4px 14px rgba(0, 0, 0, 0.6);
+      display: none;
+      min-width: 175px;
+      box-sizing: border-box;
+      pointer-events: none;
+    }
+    .hud.visible {
+      display: block;
+    }
+    .close-btn {
+      position: absolute;
+      padding: 0;
+      border: 0;
+      background: transparent;
+      top: 3px;
+      right: 5px;
+      width: 14px;
+      height: 14px;
+      line-height: 13px;
+      text-align: center;
+      font-size: 13px;
+      font-weight: 700;
+      color: #94a3b8;
+      cursor: pointer;
+      pointer-events: auto;
+      user-select: none;
+      border-radius: 3px;
+    }
+    .close-btn:hover {
+      color: #f8fafc;
+      background: rgba(255, 255, 255, 0.14);
+    }
+    .row {
+      display: flex;
+      justify-content: space-between;
+      gap: 14px;
+    }
+    .row.hidden {
+      display: none;
+    }
+    .hud-value {
+      font-weight: 600;
+      position: relative;
+    }
+    .hud-value.has-tooltip {
+      pointer-events: auto;
+      cursor: help;
+      text-decoration: underline dotted rgba(56, 189, 248, 0.5);
+      text-underline-offset: 2px;
+    }
+    .hud-value.has-tooltip[data-tooltip]:hover::after {
+      content: attr(data-tooltip);
+      position: absolute;
+      right: 0;
+      top: 125%;
+      background: #0f172a;
+      color: #e2e8f0;
+      font-size: 10.5px;
+      font-weight: 400;
+      padding: 4px 8px;
+      border-radius: 4px;
+      border: 1px solid rgba(56, 189, 248, 0.55);
+      white-space: nowrap;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.75);
+      z-index: 2147483647;
+      pointer-events: none;
+    }
+  `;
+
+  function buildPlaybackHud() {
+    const { host, shadow } = createHudHost(panelCSS);
+    hudHost = host;
+    hudHost.id = '__media-telemetry-hud-host__';
+    hudHost.style.cssText = [
+      'position: fixed !important',
+      'top: 10px',
+      'right: 10px',
+      'z-index: 2147483647 !important',
+      'pointer-events: none !important',
+      'display: block !important',
+      'visibility: visible !important',
+      'opacity: 1 !important',
+      'margin: 0 !important',
+      'padding: 0 !important'
+    ].join(';');
+
+    hudContainer = document.createElement('div');
+    hudContainer.className = 'hud hud-panel';
+
+    infoButton = createHudButton('info-badge', 'ℹ️', 'Show Playback Info HUD', () => {
+      expanded = true;
+      tick();
+      if (hudContainer.classList.contains('visible')) closeButton.focus();
+    });
+    infoButton.hidden = true;
+
+    closeButton = createHudButton('close-btn', '×', 'Hide HUD until page reload', () => {
+      if (settings.showInfoButton) {
+        expanded = false;
+        tick();
+        if (!infoButton.hidden) infoButton.focus();
+        return;
+      }
+      hudDismissed = true;
+      hudContainer.classList.remove('visible');
+      stopPolling();
+      dbg('HUD dismissed by user until reload');
+    });
+    hudContainer.appendChild(closeButton);
+
+    const resRow = createRow('RES', false);
+    const fpsRow = createRow('FPS', false);
+    const vcodecRow = createRow('VCODEC', true);
+    const modeRow = createRow('MODE', false);
+    const acodecRow = createRow('ACODEC', true);
+    const containerRow = createRow('CONTAINER', false);
+
+    hudContainer.appendChild(resRow.row);
+    hudContainer.appendChild(fpsRow.row);
+    hudContainer.appendChild(vcodecRow.row);
+    hudContainer.appendChild(modeRow.row);
+    hudContainer.appendChild(acodecRow.row);
+
+    hudContainer.appendChild(containerRow.row);
+    ui = { resRow, fpsRow, vcodecRow, modeRow, acodecRow, containerRow };
+
+    applyHudAppearance(hudContainer, settings);
+    shadow.appendChild(hudContainer);
+    shadow.appendChild(infoButton);
   }
 
   function ensureHUD() {
@@ -345,172 +482,7 @@
       targetParent = targetParent.parentElement || document.body || document.documentElement;
     }
 
-    if (!hudHost) {
-      hudHost = document.createElement('div');
-      hudHost.id = '__media-telemetry-hud-host__';
-      hudHost.style.cssText = [
-        'position: fixed !important',
-        'top: 10px',
-        'right: 10px',
-        'z-index: 2147483647 !important',
-        'pointer-events: none !important',
-        'display: block !important',
-        'visibility: visible !important',
-        'opacity: 1 !important',
-        'margin: 0 !important',
-        'padding: 0 !important'
-      ].join(';');
-
-      const shadow = hudHost.attachShadow({ mode: 'closed' });
-      const style = document.createElement('style');
-      style.textContent = `
-        ${hudInfoButtonCSS}
-        .info-badge { pointer-events: auto; }
-        .hud {
-          background: color-mix(in srgb, var(--hud-background, #0f1117) var(--hud-opacity, 88%), transparent);
-          backdrop-filter: blur(6px);
-          color: #f8fafc;
-          font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-          font-size: var(--hud-font-size, 11.5px);
-          line-height: 1.45;
-          padding: 7px 22px 7px 11px;
-          position: relative;
-          border-radius: 6px;
-          border: 1px solid rgba(56, 189, 248, 0.45);
-          box-shadow: 0 4px 14px rgba(0, 0, 0, 0.6);
-          display: none;
-          min-width: 175px;
-          box-sizing: border-box;
-          pointer-events: none;
-        }
-        .hud.visible {
-          display: block;
-        }
-        .close-btn {
-          position: absolute;
-          padding: 0;
-          border: 0;
-          background: transparent;
-          top: 3px;
-          right: 5px;
-          width: 14px;
-          height: 14px;
-          line-height: 13px;
-          text-align: center;
-          font-size: 13px;
-          font-weight: 700;
-          color: #94a3b8;
-          cursor: pointer;
-          pointer-events: auto;
-          user-select: none;
-          border-radius: 3px;
-        }
-        .close-btn:hover {
-          color: #f8fafc;
-          background: rgba(255, 255, 255, 0.14);
-        }
-        .row {
-          display: flex;
-          justify-content: space-between;
-          gap: 14px;
-        }
-        .row.hidden {
-          display: none;
-        }
-        .label {
-          color: #94a3b8;
-          font-weight: 600;
-        }
-        .val {
-          color: var(--hud-text, #38bdf8);
-          font-weight: 600;
-          text-align: right;
-          position: relative;
-        }
-        .val.has-tooltip {
-          pointer-events: auto;
-          cursor: help;
-          text-decoration: underline dotted rgba(56, 189, 248, 0.5);
-          text-underline-offset: 2px;
-        }
-        .val.has-tooltip[data-tooltip]:hover::after {
-          content: attr(data-tooltip);
-          position: absolute;
-          right: 0;
-          top: 125%;
-          background: #0f172a;
-          color: #e2e8f0;
-          font-size: 10.5px;
-          font-weight: 400;
-          padding: 4px 8px;
-          border-radius: 4px;
-          border: 1px solid rgba(56, 189, 248, 0.55);
-          white-space: nowrap;
-          box-shadow: 0 4px 12px rgba(0, 0, 0, 0.75);
-          z-index: 2147483647;
-          pointer-events: none;
-        }
-      `;
-
-      hudContainer = document.createElement('div');
-      hudContainer.className = 'hud';
-
-      infoButton = document.createElement('button');
-      infoButton.type = 'button';
-      infoButton.className = 'info-badge';
-      infoButton.title = 'Show Playback Info HUD';
-      infoButton.setAttribute('aria-label', infoButton.title);
-      infoButton.textContent = 'ℹ️';
-      infoButton.hidden = true;
-      infoButton.addEventListener('click', (e) => {
-        e.stopPropagation();
-        e.preventDefault();
-        expanded = true;
-        tick();
-        if (hudContainer.classList.contains('visible')) closeButton.focus();
-      }, true);
-
-      closeButton = document.createElement('button');
-      closeButton.type = 'button';
-      closeButton.className = 'close-btn';
-      closeButton.textContent = '\u00d7';
-      closeButton.addEventListener('click', (e) => {
-        e.stopPropagation();
-        e.preventDefault();
-        if (settings.showInfoButton) {
-          expanded = false;
-          tick();
-          if (!infoButton.hidden) infoButton.focus();
-          return;
-        }
-        hudDismissed = true;
-        hudContainer.classList.remove('visible');
-        stopPolling();
-        dbg('HUD dismissed by user until reload');
-      });
-      hudContainer.appendChild(closeButton);
-
-      const resRow = createRow('RES', false);
-      const fpsRow = createRow('FPS', false);
-      const vcodecRow = createRow('VCODEC', true);
-      const modeRow = createRow('MODE', false);
-      const acodecRow = createRow('ACODEC', true);
-      const containerRow = createRow('CONTAINER', false);
-
-      hudContainer.appendChild(resRow.row);
-      hudContainer.appendChild(fpsRow.row);
-      hudContainer.appendChild(vcodecRow.row);
-      hudContainer.appendChild(modeRow.row);
-      hudContainer.appendChild(acodecRow.row);
-
-      hudContainer.appendChild(containerRow.row);
-      ui = { resRow, fpsRow, vcodecRow, modeRow, acodecRow, containerRow };
-
-      shadow.appendChild(style);
-      applyHudAppearance(hudContainer, settings);
-      shadow.appendChild(hudContainer);
-      shadow.appendChild(infoButton);
-    }
+    if (!hudHost) buildPlaybackHud();
 
     if (hudHost.parentElement !== targetParent) {
       targetParent.appendChild(hudHost);
