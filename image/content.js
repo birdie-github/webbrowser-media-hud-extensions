@@ -126,11 +126,14 @@
     const top = Math.max(0, box.top);
     const right = Math.min(document.documentElement.clientWidth, box.right);
     const bottom = Math.min(document.documentElement.clientHeight, box.bottom);
-    if (right - left < 34 || bottom - top < 34) return null;
-    const x = right - 34;
-    const y = top + 8;
+    const margin = 8;
+    const spaceNeeded = hudBadgeSize + margin;
+    if (right - left < spaceNeeded || bottom - top < spaceNeeded) return null;
+    const x = Math.round(right - spaceNeeded);
+    const y = Math.round(top + margin);
+    const center = hudBadgeSize / 2;
     // Avoid putting the badge over a dialog, clipped slide or unrelated image.
-    const hit = document.elementsFromPoint(x + 13, y + 13).find(el => el !== hostEl);
+    const hit = document.elementsFromPoint(x + center, y + center).find(el => el !== hostEl);
     if (hit !== img) return null;
 
     ensureHudDOM();
@@ -140,8 +143,8 @@
       button.style.position = "fixed";
     }
     if (button.parentNode !== autoLayer) autoLayer.appendChild(button);
-    button.style.left = Math.round(x) + "px";
-    button.style.top = Math.round(y) + "px";
+    button.style.left = x + "px";
+    button.style.top = y + "px";
     return button;
   }
 
@@ -570,8 +573,8 @@
     }
 
     const hudRect = containerEl.getBoundingClientRect();
-    const hudW = hudRect.width || (pinnedImg ? 260 : 26);
-    const hudH = hudRect.height || (pinnedImg ? 130 : 26);
+    const hudW = hudRect.width || (pinnedImg ? 260 : hudBadgeSize);
+    const hudH = hudRect.height || (pinnedImg ? 130 : hudBadgeSize);
     const margin = 8;
 
     let targetLeft = box.right - hudW - margin;
