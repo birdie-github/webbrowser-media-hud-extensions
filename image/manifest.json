@@ -27,6 +27,7 @@
         "shared/appearance.js",
         "shared/hud.js",
         "image-probe.js",
+        "auto-badges.js",
         "content.js"
       ],
       "run_at": "document_idle",

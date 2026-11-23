@@ -118,16 +118,22 @@
 
   <div class="settings-group" id="imageActivation" hidden>
     <h2 class="group-title">Activation Modes</h2>
-    <div class="checkbox-row">
-      <input type="checkbox" id="showHoverButton" checked>
-      <label for="showHoverButton">Show a floating &#x2139;&#xFE0F; button on hover</label>
+    <div class="field-row">
+      <label for="imageButtonMode">Show image info button</label>
+      <select id="imageButtonMode" aria-describedby="imageModeHint menuHint">
+        <option value="hover">On hover</option>
+        <option value="auto">Automatically</option>
+        <option value="never">Never*</option>
+      </select>
     </div>
+    <p class="hint" id="imageModeHint">Automatically shows ℹ️ on visible images that meet the minimum dimensions.
+      Hover to inspect CSS background images. Image diagnostics run when you open the panel.</p>
     <div class="checkbox-row">
       <input type="checkbox" id="enableContextMenu" checked>
       <label for="enableContextMenu">Add "Show Image Info HUD" to right-click context menu</label>
     </div>
-    <div class="hint" id="validationHint">
-      At least one activation method must remain enabled.
+    <div class="hint" id="menuHint">
+      * Never relies on the right-click menu. CSS backgrounds belong to page elements. If the add-on cannot identify the background under the pointer, “Show Image Info HUD” is unavailable.
     </div>
   </div>
 

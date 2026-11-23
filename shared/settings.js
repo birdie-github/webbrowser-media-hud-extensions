@@ -9,14 +9,17 @@ const hudDefaults = {
   panelText: "#38bdf8"
 };
 
-const imageActivationDefaults = { showHoverButton: true, enableContextMenu: true };
+const imageActivationDefaults = { imageButtonMode: "hover", enableContextMenu: true };
 const videoActivationDefaults = { showInfoButton: false };
 
 function normalizeHudSettings(defaults, values) {
   const settings = { ...defaults };
   for (const [key, fallback] of Object.entries(defaults)) {
     const value = values[key];
-    if (typeof fallback === "boolean" && typeof value === "boolean") {
+    if (key === "imageButtonMode") {
+      settings[key] = ["hover", "auto", "never"].includes(value)
+        ? value : values.showHoverButton === false ? "never" : "hover";
+    } else if (typeof fallback === "boolean" && typeof value === "boolean") {
       settings[key] = value;
     } else if (typeof fallback === "string" && typeof value === "string" && /^#[0-9a-f]{6}$/i.test(value)) {
       settings[key] = value;
@@ -30,10 +33,14 @@ function normalizeHudSettings(defaults, values) {
       }
     }
   }
-  if (settings.showHoverButton === false && settings.enableContextMenu === false) {
-    settings.showHoverButton = true;
-  }
+  if (settings.imageButtonMode === "never") settings.enableContextMenu = true;
   return settings;
+}
+
+async function readHudSettings(defaults) {
+  const keys = Object.keys(defaults);
+  if ("imageButtonMode" in defaults) keys.push("showHoverButton");
+  return normalizeHudSettings(defaults, await browser.storage.local.get(keys));
 }
 
 function watchHudSettings(defaults, onSettings) {
@@ -41,8 +48,8 @@ function watchHudSettings(defaults, onSettings) {
   async function reload() {
     const request = ++revision;
     try {
-      const stored = await browser.storage.local.get(defaults);
-      if (request === revision) onSettings(normalizeHudSettings(defaults, stored));
+      const stored = await readHudSettings(defaults);
+      if (request === revision) onSettings(stored);
     } catch (error) {
       console.error("Could not load HUD preferences", error);
     }

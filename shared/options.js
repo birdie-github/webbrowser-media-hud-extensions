@@ -11,12 +11,13 @@ document.getElementById(isImage ? "imageActivation" : "videoActivation").hidden 
 
 function updateActivationControls() {
   if (!isImage) return;
-  fields.showHoverButton.disabled = !fields.enableContextMenu.checked;
-  fields.enableContextMenu.disabled = !fields.showHoverButton.checked;
+  const menuRequired = fields.imageButtonMode.value === "never";
+  if (menuRequired) fields.enableContextMenu.checked = true;
+  fields.enableContextMenu.disabled = menuRequired;
 }
 
 async function initializeOptions() {
-  const settings = normalizeHudSettings(defaults, await browser.storage.local.get(defaults));
+  const settings = await readHudSettings(defaults);
   for (const [key, input] of Object.entries(fields)) {
     if (input.type === "checkbox") input.checked = settings[key];
     else input.value = settings[key];
@@ -27,7 +28,9 @@ async function initializeOptions() {
         : input.type === "number" ? input.valueAsNumber : input.value;
       updateActivationControls();
       try {
-        await browser.storage.local.set({ [key]: value });
+        const changes = { [key]: value };
+        if (key === "imageButtonMode" && value === "never") changes.enableContextMenu = true;
+        await browser.storage.local.set(changes);
         status.textContent = "";
       } catch (error) {
         status.textContent = "Could not save preference.";

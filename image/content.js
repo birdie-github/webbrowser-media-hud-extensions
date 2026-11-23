@@ -36,12 +36,14 @@
   let panelEl = null;
   let downloadBtn = null;
   let rowElements = {};
+  let autoLayer = null;
+  let autoBadges = null;
 
   function revalidateActiveImages() {
     if (pinnedImg && !isQualifyingImage(pinnedImg)) {
       closeExpandedHud();
     }
-    if (hoveredImg && (!settings.showHoverButton || !isQualifyingImage(hoveredImg))) {
+    if (hoveredImg && (settings.imageButtonMode === "never" || !isQualifyingImage(hoveredImg))) {
       if (!pinnedImg) hideAll();
       hoveredImg = null;
     }
@@ -111,9 +113,36 @@
 
     containerEl.appendChild(badgeBtn);
     containerEl.appendChild(panelEl);
-    shadow.appendChild(containerEl);
+    autoLayer = document.createElement("div");
+    shadow.append(autoLayer, containerEl);
     applyHudAppearance(containerEl, settings);
     document.body.appendChild(hostEl);
+  }
+
+  function updateAutoBadge(img, button) {
+    if (pinnedImg || !img.isConnected || !isQualifyingImage(img)) return null;
+    const box = getRenderedImageBox(img);
+    const left = Math.max(0, box.left);
+    const top = Math.max(0, box.top);
+    const right = Math.min(document.documentElement.clientWidth, box.right);
+    const bottom = Math.min(document.documentElement.clientHeight, box.bottom);
+    if (right - left < 34 || bottom - top < 34) return null;
+    const x = right - 34;
+    const y = top + 8;
+    // Avoid putting the badge over a dialog, clipped slide or unrelated image.
+    const hit = document.elementsFromPoint(x + 13, y + 13).find(el => el !== hostEl);
+    if (hit !== img) return null;
+
+    ensureHudDOM();
+    if (!autoLayer) return null;
+    if (!button) {
+      button = createHudBadge("Inspect Image Format & Resolution", () => openExpandedHud(img));
+      button.style.position = "fixed";
+    }
+    if (button.parentNode !== autoLayer) autoLayer.appendChild(button);
+    button.style.left = Math.round(x) + "px";
+    button.style.top = Math.round(y) + "px";
+    return button;
   }
 
   // Extract first valid HTTP/HTTPS/Data URL from CSS background-image
@@ -569,6 +598,7 @@
   }
 
   function schedulePositionUpdate() {
+    autoBadges?.refresh();
     if (rafId !== null) return;
     rafId = window.requestAnimationFrame(updateHudPosition);
   }
@@ -595,6 +625,7 @@
 
     isPointerOverBadge = false;
     pinnedImg = img;
+    autoBadges?.refresh();
     hoveredImg = img;
     activeTargetUrl = getTargetUrl(img);
     badgeBtn.classList.add("hud-hidden");
@@ -607,6 +638,7 @@
   }
 
   function closeExpandedHud() {
+    autoBadges?.refresh();
     pinnedImg = null;
     hoveredImg = null;
     activeTargetUrl = "";
@@ -1273,16 +1305,18 @@
   }
 
   function scheduleHoverHitTest(x, y) {
-    if (pinnedImg || !settings.showHoverButton || isPointerOverBadge) return;
+    if (pinnedImg || settings.imageButtonMode === "never" || isPointerOverBadge) return;
     hoverX = x;
     hoverY = y;
     if (hoverFrameId !== null) return;
 
     hoverFrameId = window.requestAnimationFrame(() => {
       hoverFrameId = null;
-      if (pinnedImg || !settings.showHoverButton || isPointerOverBadge) return;
+      if (pinnedImg || settings.imageButtonMode === "never" || isPointerOverBadge) return;
 
-      const candidate = findQualifyingImageAtPoint(hoverX, hoverY);
+      let candidate = findQualifyingImageAtPoint(hoverX, hoverY);
+      if (settings.imageButtonMode === "auto" && candidate?.nodeName === "IMG"
+          && candidate.getRootNode() === document) candidate = null;
       if (candidate && candidate !== hoveredImg) {
         showHoverBadge(candidate);
       } else if (candidate) {
@@ -1363,7 +1397,17 @@
     return false;
   });
   watchHudSettings(DEFAULT_SETTINGS, nextSettings => {
+    if (settings.imageButtonMode !== nextSettings.imageButtonMode && hoveredImg && !pinnedImg) {
+      hoveredImg = null;
+      hideAll();
+    }
     settings = nextSettings;
+    if (settings.imageButtonMode === "auto") {
+      if (!autoBadges) autoBadges = observeImageBadges(updateAutoBadge);
+    } else if (autoBadges) {
+      autoBadges.stop();
+      autoBadges = null;
+    }
     if (containerEl) applyHudAppearance(containerEl, settings);
     revalidateActiveImages();
   });
