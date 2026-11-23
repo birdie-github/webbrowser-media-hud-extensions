@@ -29,11 +29,9 @@
     };
   }
 
-  // Fallback global state + per-MediaSource & blob URL tracking
-  const globalCodecs = createCodecState();
-  const mediaSourceCodecs = new WeakMap(); // MediaSource -> CodecState
-  const sourceBufferToMs = new WeakMap();  // SourceBuffer -> MediaSource
-  const blobUrlCodecs = new Map();         // blob: URL string -> CodecState
+  const mediaSourceBuffers = new WeakMap(); // MediaSource -> Map<SourceBuffer, CodecState>
+  const bufferOwners = new WeakMap();      // SourceBuffer -> Map<SourceBuffer, CodecState>
+  const blobUrlBuffers = new Map();         // blob URL -> Map<SourceBuffer, CodecState>
   const knownMediaElements = new Set();
   const observedMediaElements = new WeakSet();
   const mediaEvents = ['play', 'playing', 'pause', 'ended', 'emptied', 'timeupdate'];
@@ -49,8 +47,8 @@
     if (lower.startsWith('dvh1') || lower.startsWith('dvhe')) return 'Dolby Vision';
     if (lower.startsWith('vvc1') || lower.startsWith('vvi1')) return 'VVC';
     if (lower.startsWith('theora')) return 'Theora';
-    if (lower.startsWith('mp4a.40.2')) return 'AAC-LC';
-    if (lower.startsWith('mp4a.40.5') || lower.startsWith('mp4a.40.29')) return 'HE-AAC';
+    if (lower === 'mp4a.40.2') return 'AAC-LC';
+    if (lower === 'mp4a.40.5' || lower === 'mp4a.40.29') return 'HE-AAC';
     if (lower.startsWith('mp4a.69') || lower.startsWith('mp4a.6b') || lower === 'mp3') return 'MP3';
     if (lower.startsWith('mp4a')) return 'AAC';
     if (lower.startsWith('opus')) return 'Opus';
@@ -63,50 +61,41 @@
     return clean.split('.')[0].toUpperCase();
   }
 
-  function parseMimeIntoState(mime, targetState, isProbe = false) {
-    if (!mime || typeof mime !== 'string' || !targetState) return;
-    const codecMatch = mime.match(/codecs=["']?([^"';]+)["']?/i);
-    if (!codecMatch) return;
+  function parseMimeCodecs(mime) {
+    const state = createCodecState();
+    const codecMatch = mime.match(/(?:^|;)\s*codecs\s*=\s*["']?([^"';]+)["']?/i);
+    if (!codecMatch) return state;
 
-    const codecs = codecMatch[1].split(',');
-    for (const c of codecs) {
-      const trimC = c.trim();
-      if (/^(av01|av1|vp09|vp9|vp08|vp8|avc1|avc3|hev1|hvc1|dvh1|dvhe|vvc1|vvi1|theora)/i.test(trimC)) {
-        if (!isProbe || !targetState.video) {
-          targetState.rawVideo = trimC;
-          targetState.video = formatCodecName(trimC);
-        }
-      } else if (/^(mp4a|mp3|opus|vorbis|flac|alac|ac-3|ec-3|ac-4)/i.test(trimC)) {
-        if (!isProbe || !targetState.audio) {
-          targetState.rawAudio = trimC;
-          targetState.audio = formatCodecName(trimC);
-        }
+    const codecs = codecMatch[1].split(',').map(codec => codec.trim()).filter(Boolean);
+    for (const codec of codecs) {
+      if (/^(av01|av1|vp09|vp9|vp08|vp8|avc1|avc3|hev1|hvc1|dvh1|dvhe|vvc1|vvi1|theora)/i.test(codec)) {
+        state.rawVideo = codec;
+        state.video = formatCodecName(codec);
+      } else if (/^(mp4a|mp3|opus|vorbis|flac|alac|ac-3|ec-3|ac-4)/i.test(codec)) {
+        state.rawAudio = codec;
+        state.audio = formatCodecName(codec);
       }
     }
 
-    if (codecs.length === 1) {
-      const single = codecs[0].trim();
-      if (mime.startsWith('video/') && (!isProbe || !targetState.video)) {
-        targetState.rawVideo = single;
-        targetState.video = formatCodecName(single);
-      } else if (mime.startsWith('audio/') && (!isProbe || !targetState.audio)) {
-        targetState.rawAudio = single;
-        targetState.audio = formatCodecName(single);
+    if (codecs.length === 1 && !state.video && !state.audio) {
+      if (/^video\//i.test(mime)) {
+        state.rawVideo = codecs[0];
+        state.video = formatCodecName(codecs[0]);
+      } else if (/^audio\//i.test(mime)) {
+        state.rawAudio = codecs[0];
+        state.audio = formatCodecName(codecs[0]);
       }
     }
+    return state;
   }
 
-  function recordMime(mime, isProbe = false, msInstance = null) {
-    dbg(isProbe ? 'MSE.isTypeSupported(supported):' : 'MSE Exact Hook:', mime, { hasMsInstance: Boolean(msInstance) });
-    parseMimeIntoState(mime, globalCodecs, isProbe);
-    if (msInstance && typeof msInstance === 'object') {
-      let msState = mediaSourceCodecs.get(msInstance);
-      if (!msState) {
-        msState = createCodecState();
-        mediaSourceCodecs.set(msInstance, msState);
-      }
-      parseMimeIntoState(mime, msState, isProbe);
+  function buffersForMediaSource(source) {
+    let buffers = mediaSourceBuffers.get(source);
+    if (!buffers) {
+      buffers = new Map();
+      mediaSourceBuffers.set(source, buffers);
     }
+    return buffers;
   }
 
   // 1. Universal, Xray-Safe & CSP/TrustedTypes-Immune Hooks via exportFunction
@@ -121,10 +110,9 @@
         const wrappedAdd = function (mimeType) {
           const sb = Function.prototype.apply.call(origAdd, this, arguments);
           try {
-            recordMime(String(mimeType || ''), false, this);
-            if (sb && typeof sb === 'object') {
-              sourceBufferToMs.set(sb, this);
-            }
+            const buffers = buffersForMediaSource(this);
+            buffers.set(sb, parseMimeCodecs(typeof mimeType === 'string' ? mimeType : ''));
+            bufferOwners.set(sb, buffers);
           } catch (err) {
             dbgWarn('addSourceBuffer hook error:', err);
           }
@@ -134,41 +122,34 @@
         dbg('Hooked MediaSource.prototype.addSourceBuffer');
       }
 
+      const origRemove = msProto.removeSourceBuffer;
+      if (typeof origRemove === 'function') {
+        exportFunction(function (buffer) {
+          const result = Function.prototype.apply.call(origRemove, this, arguments);
+          bufferOwners.get(buffer)?.delete(buffer);
+          bufferOwners.delete(buffer);
+          return result;
+        }, msProto, { defineAs: 'removeSourceBuffer' });
+      }
+
       if (pageWin.SourceBuffer && pageWin.SourceBuffer.prototype) {
         const sbProto = pageWin.SourceBuffer.prototype;
         const origChange = sbProto.changeType;
         if (typeof origChange === 'function') {
           const wrappedChange = function (mimeType) {
+            const result = Function.prototype.apply.call(origChange, this, arguments);
             try {
-              const parentMs = sourceBufferToMs.get(this) || null;
-              recordMime(String(mimeType || ''), false, parentMs);
+              bufferOwners.get(this)?.set(this, parseMimeCodecs(typeof mimeType === 'string' ? mimeType : ''));
             } catch (err) {
               dbgWarn('changeType hook error:', err);
             }
-            return Function.prototype.apply.call(origChange, this, arguments);
+            return result;
           };
           exportFunction(wrappedChange, sbProto, { defineAs: 'changeType' });
           dbg('Hooked SourceBuffer.prototype.changeType');
         }
       }
 
-      if (typeof pageWin.MediaSource.isTypeSupported === 'function') {
-        const origSupported = pageWin.MediaSource.isTypeSupported;
-        const wrappedSupported = function (mimeType) {
-          const mimeStr = typeof mimeType === 'string' ? mimeType : String(mimeType || '');
-          const supported = Boolean(Function.prototype.apply.call(origSupported, this, arguments));
-          if (supported && mimeStr) {
-            try {
-              recordMime(mimeStr, true, null);
-            } catch (err) {
-              dbgWarn('isTypeSupported hook error:', err);
-            }
-          }
-          return supported;
-        };
-        exportFunction(wrappedSupported, pageWin.MediaSource, { defineAs: 'isTypeSupported' });
-        dbg('Hooked MediaSource.isTypeSupported');
-      }
     } else {
       dbgWarn('pageWin.MediaSource unavailable in this frame/compartment');
     }
@@ -176,23 +157,17 @@
     // Bind MediaSource instances to their blob: URLs
     if (pageWin && pageWin.URL && typeof pageWin.URL.createObjectURL === 'function') {
       const origCreateObjURL = pageWin.URL.createObjectURL;
-      const origRevokeObjURL = pageWin.URL.revokeObjectURL;
 
       const wrappedCreateObjURL = function (obj) {
         const url = Function.prototype.apply.call(origCreateObjURL, this, arguments);
         try {
-          if (obj && typeof obj === 'object' && url) {
-            let msState = mediaSourceCodecs.get(obj);
-            if (!msState) {
-              msState = createCodecState();
-              mediaSourceCodecs.set(obj, msState);
+          if (url && pageWin.MediaSource && obj instanceof pageWin.MediaSource) {
+            if (blobUrlBuffers.size >= 100) {
+              const oldestKey = blobUrlBuffers.keys().next().value;
+              blobUrlBuffers.delete(oldestKey);
             }
-            if (blobUrlCodecs.size > 100) {
-              const oldestKey = blobUrlCodecs.keys().next().value;
-              blobUrlCodecs.delete(oldestKey);
-            }
-            blobUrlCodecs.set(String(url), msState);
-            dbg('Bound blob URL to MediaSource:', String(url), msState);
+            // Keep associations after revocation for players already using the URL.
+            blobUrlBuffers.set(url, buffersForMediaSource(obj));
           }
         } catch (err) {
           dbgWarn('createObjectURL hook error:', err);
@@ -202,14 +177,6 @@
       exportFunction(wrappedCreateObjURL, pageWin.URL, { defineAs: 'createObjectURL' });
       dbg('Hooked URL.createObjectURL');
 
-      if (typeof origRevokeObjURL === 'function') {
-        const wrappedRevokeObjURL = function (url) {
-          // Intentionally keep blobUrlCodecs entry so active videos that revoke their
-          // object URL immediately after load don't lose their codec association.
-          return Function.prototype.apply.call(origRevokeObjURL, this, arguments);
-        };
-        exportFunction(wrappedRevokeObjURL, pageWin.URL, { defineAs: 'revokeObjectURL' });
-      }
     }
     // Hook HTMLMediaElement.prototype.play & load to catch detached <video> elements
     if (pageWin && pageWin.HTMLMediaElement && pageWin.HTMLMediaElement.prototype) {
@@ -528,6 +495,7 @@
       const vcodecRow = createRow('VCODEC', true);
       const modeRow = createRow('MODE', false);
       const acodecRow = createRow('ACODEC', true);
+      const containerRow = createRow('CONTAINER', false);
 
       hudContainer.appendChild(resRow.row);
       hudContainer.appendChild(fpsRow.row);
@@ -535,7 +503,8 @@
       hudContainer.appendChild(modeRow.row);
       hudContainer.appendChild(acodecRow.row);
 
-      ui = { resRow, fpsRow, vcodecRow, modeRow, acodecRow };
+      hudContainer.appendChild(containerRow.row);
+      ui = { resRow, fpsRow, vcodecRow, modeRow, acodecRow, containerRow };
 
       shadow.appendChild(style);
       applyHudAppearance(hudContainer, settings);
@@ -623,37 +592,44 @@
     hudHost.style.setProperty('right', '12px', 'important');
   }
 
-  function getStaticFallbackCodec(mediaEl) {
+  function getContainerHint(mediaEl) {
     const src = mediaEl.currentSrc || mediaEl.src || '';
-    if (!src || src.startsWith('blob:')) return null;
+    if (!src || mediaEl.srcObject) return null;
     try {
       const url = new URL(src, window.location.href);
-      const ext = url.pathname.split('.').pop().toLowerCase();
+      if (url.protocol === 'blob:') return null;
+      const ext = /\.([a-z0-9]+)$/i.exec(url.pathname)?.[1].toLowerCase();
       if (['mp4', 'webm', 'ogg', 'mp3', 'wav', 'flac', 'm4a', 'aac', 'opus', 'mkv', 'mov'].includes(ext)) {
-        return `Container (.${ext})`;
+        return `.${ext} (URL)`;
       }
     } catch (_) {}
     return null;
   }
 
   function resolveCodecsForElement(mediaEl) {
-    // 1. Check YouTube player API if applicable
-    const ytCodecs = getYouTubePlayerCodecs(mediaEl);
-    if (ytCodecs && (ytCodecs.video || ytCodecs.audio)) {
-      return ytCodecs;
-    }
+    const state = getYouTubePlayerCodecs(mediaEl) || createCodecState();
+    const buffers = mediaEl.srcObject
+      ? mediaSourceBuffers.get(mediaEl.srcObject)
+      : blobUrlBuffers.get(mediaEl.currentSrc);
+    if (!buffers) return state;
 
-    // 2. Check exact MediaSource bound to this element's blob: URL
-    const src = mediaEl.currentSrc || mediaEl.src || '';
-    if (src && blobUrlCodecs.has(src)) {
-      const boundState = blobUrlCodecs.get(src);
-      if (boundState && (boundState.video || boundState.audio)) {
-        return boundState;
+    for (const [kind, rawKey] of [['video', 'rawVideo'], ['audio', 'rawAudio']]) {
+      if (state[kind]) continue;
+      let candidate = null;
+      for (const codec of buffers.values()) {
+        if (!codec[rawKey]) continue;
+        if (candidate && candidate[rawKey] !== codec[rawKey]) {
+          candidate = null;
+          break;
+        }
+        candidate = codec;
+      }
+      if (candidate) {
+        state[kind] = candidate[kind];
+        state[rawKey] = candidate[rawKey];
       }
     }
-
-    // 3. Fallback to global state
-    return globalCodecs;
+    return state;
   }
 
   function meetsMinimumDimensions(el) {
@@ -774,12 +750,14 @@
     }
 
     const activeCodecs = resolveCodecsForElement(activeMedia);
-    const fallback = getStaticFallbackCodec(activeMedia);
+    const container = getContainerHint(activeMedia);
+    ui.containerRow.row.classList.toggle('hidden', !container);
+    ui.containerRow.val.textContent = container || '';
 
-    const vCodecName = activeCodecs.video || (isVideo ? fallback || 'MSE / Stream' : 'None');
+    const vCodecName = activeCodecs.video || 'Unknown';
     const vCodecTooltip = activeCodecs.rawVideo || 'No detailed codec parameters';
 
-    const aCodecName = activeCodecs.audio || fallback || 'MSE / Stream';
+    const aCodecName = activeCodecs.audio || 'Unknown';
     const aCodecTooltip = activeCodecs.rawAudio || 'No detailed codec parameters';
 
     if (isVideo) {
