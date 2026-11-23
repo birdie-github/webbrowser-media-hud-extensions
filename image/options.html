@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Image Format &amp; Resolution HUD Preferences</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+      --bg: #ffffff;
+      --fg: #1e293b;
+      --muted: #64748b;
+      --border: #cbd5e1;
+      --accent: #0284c7;
+      --card-bg: #f8fafc;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #18181b;
+        --fg: #f1f5f9;
+        --muted: #94a3b8;
+        --border: #334155;
+        --accent: #38bdf8;
+        --card-bg: #0f172a;
+      }
+    }
+    * {
+      box-sizing: border-box;
+    }
+    body {
+      margin: 0;
+      padding: 16px;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      font-size: 14px;
+      line-height: 1.5;
+      color: var(--fg);
+      background: transparent;
+    }
+    .settings-group {
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 14px 16px;
+      margin-bottom: 14px;
+    }
+    .group-title {
+      font-weight: 600;
+      font-size: 13px;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      color: var(--muted);
+      margin: 0 0 12px 0;
+    }
+    .field-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 10px;
+      gap: 12px;
+    }
+    .field-row:last-child {
+      margin-bottom: 0;
+    }
+    label {
+      cursor: pointer;
+      user-select: none;
+    }
+    input[type="number"] {
+      width: 100px;
+      padding: 6px 8px;
+      border: 1px solid var(--border);
+      border-radius: 5px;
+      background: var(--bg);
+      color: var(--fg);
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 13px;
+    }
+    .checkbox-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 10px;
+    }
+    .checkbox-row:last-child {
+      margin-bottom: 0;
+    }
+    input[type="checkbox"] {
+      width: 16px;
+      height: 16px;
+      accent-color: var(--accent);
+      cursor: pointer;
+    }
+    input[type="checkbox"]:disabled + label {
+      opacity: 0.65;
+      cursor: not-allowed;
+    }
+    .hint {
+      margin-top: 8px;
+      font-size: 12px;
+      color: var(--muted);
+    }
+  </style>
+</head>
+<body>
+  <div class="settings-group">
+    <h2 class="group-title">Minimum Image Dimensions (CSS Pixels)</h2>
+    <div class="field-row">
+      <label for="minWidth">Minimum Displayed Width (px):</label>
+      <input type="number" id="minWidth" min="16" max="10000" step="10" value="350">
+    </div>
+    <div class="field-row">
+      <label for="minHeight">Minimum Displayed Height (px):</label>
+      <input type="number" id="minHeight" min="16" max="10000" step="10" value="350">
+    </div>
+    <div class="hint">
+      Only images rendered at or above this CSS bounding-box size will activate the HUD.
+    </div>
+  </div>
+
+  <div class="settings-group">
+    <h2 class="group-title">Activation Modes</h2>
+    <div class="checkbox-row">
+      <input type="checkbox" id="showHoverButton" checked>
+      <label for="showHoverButton">Show a floating &#x2139;&#xFE0F; button on hover</label>
+    </div>
+    <div class="checkbox-row">
+      <input type="checkbox" id="enableContextMenu" checked>
+      <label for="enableContextMenu">Add "Show Image Info HUD" to right-click context menu</label>
+    </div>
+    <div class="hint" id="validationHint">
+      At least one activation method must remain enabled.
+    </div>
+  </div>
+
+  <script src="options.js"></script>
+</body>
+</html>
