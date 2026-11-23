@@ -129,8 +129,11 @@
     const margin = 8;
     const spaceNeeded = hudBadgeSize + margin;
     if (right - left < spaceNeeded || bottom - top < spaceNeeded) return null;
-    const x = Math.round(right - spaceNeeded);
-    const y = Math.round(top + margin);
+    const position = getHudCornerPosition(
+      { left, top, right, bottom }, hudBadgeSize, hudBadgeSize, settings.hudPosition, margin
+    );
+    const x = Math.round(position.left);
+    const y = Math.round(position.top);
     const center = hudBadgeSize / 2;
     // Avoid putting the badge over a dialog, clipped slide or unrelated image.
     const hit = document.elementsFromPoint(x + center, y + center).find(el => el !== hostEl);
@@ -577,8 +580,9 @@
     const hudH = hudRect.height || (pinnedImg ? 130 : hudBadgeSize);
     const margin = 8;
 
-    let targetLeft = box.right - hudW - margin;
-    let targetTop = box.top + margin;
+    const position = getHudCornerPosition(box, hudW, hudH, settings.hudPosition, margin);
+    let targetLeft = position.left;
+    let targetTop = position.top;
 
     // Clamp within image bounds when possible, and strictly clamp within viewport
     const minLeft = Math.max(margin, box.left + margin);

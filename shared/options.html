@@ -150,6 +150,16 @@
   <div class="settings-group">
     <h2 class="group-title">Panel Appearance</h2>
     <div class="field-row">
+      <label for="hudPosition">HUD position</label>
+      <select id="hudPosition" aria-describedby="hudPositionHint">
+        <option value="top-right">Top right</option>
+        <option value="bottom-right">Bottom right</option>
+        <option value="top-left">Top left</option>
+        <option value="bottom-left">Bottom left</option>
+      </select>
+    </div>
+    <p class="hint" id="hudPositionHint">Sets the corner for the ℹ️ button and expanded panel.</p>
+    <div class="field-row">
       <label for="fontSize">Font size (px)</label>
       <input type="number" id="fontSize" min="8" max="24" step="0.5">
     </div>

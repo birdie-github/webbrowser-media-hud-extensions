@@ -403,6 +403,12 @@
   function updateHUDPosition(mediaEl) {
     if (!hudHost || !hudContainer) return;
 
+    const vpWidth = document.documentElement.clientWidth || window.innerWidth;
+    const vpHeight = document.documentElement.clientHeight || window.innerHeight;
+    const overlay = infoButton.hidden ? hudContainer : infoButton;
+    let box = { left: 0, top: 0, right: vpWidth, bottom: vpHeight };
+    let margin = 12;
+
     const isVideo = mediaEl.tagName === 'VIDEO' && mediaEl.videoWidth > 0 && mediaEl.videoHeight > 0;
     if (isVideo) {
       const rect = mediaEl.getBoundingClientRect();
@@ -438,26 +444,22 @@
         const offsetX = (rect.width - renderWidth) * factorX;
         const offsetY = (rect.height - renderHeight) * factorY;
 
-        const vpWidth = document.documentElement.clientWidth || window.innerWidth;
-        const vpHeight = document.documentElement.clientHeight || window.innerHeight;
-        const hudHeight = infoButton.hidden ? hudContainer.offsetHeight : infoButton.offsetHeight;
-        const hudWidth = infoButton.hidden ? hudContainer.offsetWidth : infoButton.offsetWidth;
-
-        const rawTop = rect.top + offsetY + 10;
-        const rawRight = vpWidth - (rect.left + offsetX + renderWidth) + 10;
-
-        const topPx = Math.min(Math.max(8, rawTop), Math.max(8, vpHeight - hudHeight - 8));
-        const rightPx = Math.min(Math.max(8, rawRight), Math.max(8, vpWidth - hudWidth - 8));
-
-        hudHost.style.setProperty('top', `${Math.round(topPx)}px`, 'important');
-        hudHost.style.setProperty('right', `${Math.round(rightPx)}px`, 'important');
-        hudHost.style.removeProperty('left');
-        return;
+        const left = rect.left + offsetX;
+        const top = rect.top + offsetY;
+        box = { left, top, right: left + renderWidth, bottom: top + renderHeight };
+        margin = 10;
       }
     }
 
-    hudHost.style.setProperty('top', '12px', 'important');
-    hudHost.style.setProperty('right', '12px', 'important');
+    const width = overlay.offsetWidth;
+    const height = overlay.offsetHeight;
+    const position = getHudCornerPosition(box, width, height, settings.hudPosition, margin);
+    const left = Math.min(Math.max(8, position.left), Math.max(8, vpWidth - width - 8));
+    const top = Math.min(Math.max(8, position.top), Math.max(8, vpHeight - height - 8));
+
+    hudHost.style.setProperty('left', `${Math.round(left)}px`, 'important');
+    hudHost.style.setProperty('top', `${Math.round(top)}px`, 'important');
+    hudHost.style.removeProperty('right');
   }
 
   function getContainerHint(mediaEl) {

@@ -62,3 +62,10 @@ function createHudPanel(fields, onClose, action) {
   panel.append(header, grid);
   return { panel, close, rows };
 }
+
+function getHudCornerPosition(box, width, height, position, margin) {
+  return {
+    left: position.endsWith("-left") ? box.left + margin : box.right - width - margin,
+    top: position.startsWith("bottom-") ? box.bottom - height - margin : box.top + margin
+  };
+}

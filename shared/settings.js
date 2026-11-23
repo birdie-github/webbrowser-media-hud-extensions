@@ -3,6 +3,7 @@
 const hudDefaults = {
   minWidth: 320,
   minHeight: 240,
+  hudPosition: "top-right",
   fontSize: 11.5,
   panelOpacity: 88,
   panelBackground: "#0f1117",
@@ -19,6 +20,10 @@ function normalizeHudSettings(defaults, values) {
     if (key === "imageButtonMode") {
       settings[key] = ["hover", "auto", "never"].includes(value)
         ? value : values.showHoverButton === false ? "never" : "hover";
+    } else if (key === "hudPosition") {
+      if (["top-right", "bottom-right", "top-left", "bottom-left"].includes(value)) {
+        settings[key] = value;
+      }
     } else if (typeof fallback === "boolean" && typeof value === "boolean") {
       settings[key] = value;
     } else if (typeof fallback === "string" && typeof value === "string" && /^#[0-9a-f]{6}$/i.test(value)) {
