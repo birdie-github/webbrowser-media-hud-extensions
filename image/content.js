@@ -4,12 +4,7 @@
   if (window.__imageFormatHudInitialized) return;
   window.__imageFormatHudInitialized = true;
 
-  const DEFAULT_SETTINGS = {
-    minWidth: 350,
-    minHeight: 350,
-    showHoverButton: true,
-    enableContextMenu: true
-  };
+  const DEFAULT_SETTINGS = { ...hudDefaults, ...imageActivationDefaults };
 
   let settings = { ...DEFAULT_SETTINGS };
 
@@ -40,22 +35,6 @@
   let closeBtn = null;
   let downloadBtn = null;
   let rowElements = {};
-
-  // Load initial settings and watch for live changes
-  browser.storage.local.get(DEFAULT_SETTINGS).then((stored) => {
-    settings = { ...DEFAULT_SETTINGS, ...stored };
-    revalidateActiveImages();
-  }).catch(() => {});
-
-  browser.storage.onChanged.addListener((changes, area) => {
-    if (area !== "local") return;
-    for (const [key, { newValue }] of Object.entries(changes)) {
-      if (key in settings && newValue !== undefined) {
-        settings[key] = newValue;
-      }
-    }
-    revalidateActiveImages();
-  });
 
   function revalidateActiveImages() {
     if (pinnedImg && !isQualifyingImage(pinnedImg)) {
@@ -97,7 +76,7 @@
         z-index: 2147483647;
         pointer-events: auto;
         font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-        font-size: 11.5px;
+        font-size: var(--hud-font-size, 11.5px);
         line-height: 1.45;
         color: #38bdf8;
         user-select: none;
@@ -107,35 +86,11 @@
       .hud-hidden {
         display: none !important;
       }
-      .info-badge {
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        width: 26px;
-        height: 26px;
-        padding: 0;
-        margin: 0;
-        background: rgba(15, 17, 23, 0.78);
-        backdrop-filter: blur(6px);
-        border: 1px solid rgba(56, 189, 248, 0.45);
-        border-radius: 6px;
-        color: #38bdf8;
-        font-size: 13px;
-        cursor: pointer;
-        opacity: 0.82;
-        transition: opacity 0.14s ease, transform 0.14s ease, border-color 0.14s ease, box-shadow 0.14s ease;
-        box-shadow: 0 2px 10px rgba(0, 0, 0, 0.45);
-      }
-      .info-badge:hover {
-        opacity: 1;
-        transform: scale(1.06);
-        border-color: rgba(56, 189, 248, 0.85);
-        box-shadow: 0 4px 14px rgba(56, 189, 248, 0.25);
-      }
+      ${hudInfoButtonCSS}
       .hud-panel {
         min-width: 248px;
         max-width: 340px;
-        background: rgba(15, 17, 23, 0.88);
+        background: color-mix(in srgb, var(--hud-background, #0f1117) var(--hud-opacity, 88%), transparent);
         backdrop-filter: blur(6px);
         border: 1px solid rgba(56, 189, 248, 0.45);
         border-radius: 6px;
@@ -194,7 +149,7 @@
         white-space: nowrap;
       }
       .hud-value {
-        color: #38bdf8;
+        color: var(--hud-text, #38bdf8);
         text-align: right;
         word-break: break-word;
       }
@@ -310,6 +265,7 @@
     containerEl.appendChild(panelEl);
     shadowRoot.appendChild(styleEl);
     shadowRoot.appendChild(containerEl);
+    applyHudAppearance(containerEl, settings);
     document.body.appendChild(hostEl);
   }
 
@@ -1561,5 +1517,10 @@
     }
 
     return false;
+  });
+  watchHudSettings(DEFAULT_SETTINGS, nextSettings => {
+    settings = nextSettings;
+    if (containerEl) applyHudAppearance(containerEl, settings);
+    revalidateActiveImages();
   });
 })();

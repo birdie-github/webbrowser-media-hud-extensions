@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <title>Image Format &amp; Resolution HUD Preferences</title>
+  <title>Media HUD Preferences</title>
   <style>
     :root {
       color-scheme: light dark;
@@ -102,21 +102,21 @@
 </head>
 <body>
   <div class="settings-group">
-    <h2 class="group-title">Minimum Image Dimensions (CSS Pixels)</h2>
+    <h2 class="group-title">Minimum Displayed Dimensions</h2>
     <div class="field-row">
       <label for="minWidth">Minimum Displayed Width (px):</label>
-      <input type="number" id="minWidth" min="16" max="10000" step="10" value="350">
+      <input type="number" id="minWidth" min="1" step="1">
     </div>
     <div class="field-row">
       <label for="minHeight">Minimum Displayed Height (px):</label>
-      <input type="number" id="minHeight" min="16" max="10000" step="10" value="350">
+      <input type="number" id="minHeight" min="1" step="1">
     </div>
     <div class="hint">
-      Only images rendered at or above this CSS bounding-box size will activate the HUD.
+      Both dimensions must meet the minimum.
     </div>
   </div>
 
-  <div class="settings-group">
+  <div class="settings-group" id="imageActivation" hidden>
     <h2 class="group-title">Activation Modes</h2>
     <div class="checkbox-row">
       <input type="checkbox" id="showHoverButton" checked>
@@ -131,6 +131,36 @@
     </div>
   </div>
 
+  <div class="settings-group" id="videoActivation" hidden>
+    <h2 class="group-title">Activation Mode</h2>
+    <div class="checkbox-row">
+      <input type="checkbox" id="showInfoButton">
+      <label for="showInfoButton">Show an ℹ️ button instead of the full HUD</label>
+    </div>
+  </div>
+
+  <div class="settings-group">
+    <h2 class="group-title">Panel Appearance</h2>
+    <div class="field-row">
+      <label for="fontSize">Font size (px)</label>
+      <input type="number" id="fontSize" min="8" max="24" step="0.5">
+    </div>
+    <div class="field-row">
+      <label for="panelOpacity">Background opacity (%)</label>
+      <input type="number" id="panelOpacity" min="0" max="100" step="1">
+    </div>
+    <div class="field-row">
+      <label for="panelBackground">Background color</label>
+      <input type="color" id="panelBackground">
+    </div>
+    <div class="field-row">
+      <label for="panelText">Value text color</label>
+      <input type="color" id="panelText">
+    </div>
+  </div>
+
+  <p role="status" id="saveStatus"></p>
+  <script src="settings.js"></script>
   <script src="options.js"></script>
 </body>
 </html>

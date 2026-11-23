@@ -19,6 +19,12 @@
       "strict_min_version": "142.0"
     }
   },
+  "permissions": ["storage"],
+  "options_ui": {
+    "page": "shared/options.html",
+    "open_in_tab": false,
+    "browser_style": false
+  },
   "icons": {
     "16": "icons/icon-16.png",
     "32": "icons/icon-32.png",
@@ -31,6 +37,8 @@
         "<all_urls>"
       ],
       "js": [
+        "shared/settings.js",
+        "shared/appearance.js",
         "content.js"
       ],
       "run_at": "document_start",

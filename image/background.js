@@ -1,11 +1,6 @@
 "use strict";
 
-const DEFAULT_SETTINGS = {
-  minWidth: 350,
-  minHeight: 350,
-  showHoverButton: true,
-  enableContextMenu: true
-};
+const DEFAULT_SETTINGS = imageActivationDefaults;
 
 const MENU_ID = "show-image-info-hud";
 const MAX_CACHE_ENTRIES = 2000;
@@ -31,30 +26,6 @@ function getCacheEntry(url) {
   headerCache.set(url, val);
   return val;
 }
-
-// Initialize and synchronize settings
-async function loadSettings() {
-  try {
-    const stored = await browser.storage.local.get(DEFAULT_SETTINGS);
-    currentSettings = { ...DEFAULT_SETTINGS, ...stored };
-    if (!currentSettings.showHoverButton && !currentSettings.enableContextMenu) {
-      currentSettings.showHoverButton = true;
-    }
-    syncContextMenu();
-  } catch (err) {
-    console.error("[Image HUD] Failed to load settings:", err);
-  }
-}
-
-browser.storage.onChanged.addListener((changes, area) => {
-  if (area !== "local") return;
-  for (const [key, { newValue }] of Object.entries(changes)) {
-    if (key in currentSettings && newValue !== undefined) {
-      currentSettings[key] = newValue;
-    }
-  }
-  syncContextMenu();
-});
 
 // Passive HTTP Header Capture for exact MIME type & Content-Length
 browser.webRequest.onHeadersReceived.addListener(
@@ -231,4 +202,7 @@ browser.runtime.onMessage.addListener((message, sender, sendResponse) => {
   return false;
 });
 
-loadSettings();
+watchHudSettings(DEFAULT_SETTINGS, settings => {
+  currentSettings = settings;
+  syncContextMenu();
+});

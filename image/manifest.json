@@ -11,6 +11,7 @@
   ],
   "background": {
     "scripts": [
+      "shared/settings.js",
       "background.js"
     ],
     "persistent": true
@@ -21,6 +22,8 @@
         "<all_urls>"
       ],
       "js": [
+        "shared/settings.js",
+        "shared/appearance.js",
         "content.js"
       ],
       "run_at": "document_idle",
@@ -28,7 +31,7 @@
     }
   ],
   "options_ui": {
-    "page": "options.html",
+    "page": "shared/options.html",
     "open_in_tab": false,
     "browser_style": false
   },

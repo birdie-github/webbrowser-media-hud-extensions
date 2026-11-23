@@ -22,6 +22,9 @@ def package(target):
             for path in sorted(source.rglob("*")):
                 if path.is_file() and path != source / "icons/source.jpg":
                     archive.write(path, path.relative_to(source))
+            for path in sorted((ROOT / "shared").iterdir()):
+                if path.is_file():
+                    archive.write(path, path.relative_to(ROOT))
             archive.write(ROOT / "LICENSE", "LICENSE")
         staging.replace(destination)
     finally:

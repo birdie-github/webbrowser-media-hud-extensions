@@ -1,6 +1,10 @@
 (function () {
   'use strict';
 
+  const defaults = { ...hudDefaults, ...videoActivationDefaults };
+  let settings = defaults;
+  let settingsReady = false;
+
   const DEBUG = false;
   const FRAME_TAG = window === window.top ? 'TOP' : `IFRAME(${window.location.hostname || 'blank'})`;
 
@@ -306,6 +310,10 @@
   // 3. HUD Lifecycle, Timer Management & Layout Throttling
   let hudHost = null;
   let hudContainer = null;
+  let infoButton = null;
+  let closeButton = null;
+  let expanded = false;
+  let activeSource = "";
   let ui = null;
   let activeMedia = null;
   let hudDismissed = false;
@@ -333,7 +341,7 @@
     if (rafId !== null || !activeMedia) return;
     rafId = requestAnimationFrame(() => {
       rafId = null;
-      if (activeMedia) {
+      if (activeMedia && hudContainer && (hudContainer.classList.contains('visible') || !infoButton.hidden)) {
         updateHUDPosition(activeMedia);
       }
     });
@@ -406,12 +414,14 @@
       const shadow = hudHost.attachShadow({ mode: 'closed' });
       const style = document.createElement('style');
       style.textContent = `
+        ${hudInfoButtonCSS}
+        .info-badge { pointer-events: auto; }
         .hud {
-          background: rgba(15, 17, 23, 0.88);
+          background: color-mix(in srgb, var(--hud-background, #0f1117) var(--hud-opacity, 88%), transparent);
           backdrop-filter: blur(6px);
           color: #f8fafc;
           font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-          font-size: 11.5px;
+          font-size: var(--hud-font-size, 11.5px);
           line-height: 1.45;
           padding: 7px 22px 7px 11px;
           position: relative;
@@ -428,6 +438,9 @@
         }
         .close-btn {
           position: absolute;
+          padding: 0;
+          border: 0;
+          background: transparent;
           top: 3px;
           right: 5px;
           width: 14px;
@@ -459,7 +472,7 @@
           font-weight: 600;
         }
         .val {
-          color: #38bdf8;
+          color: var(--hud-text, #38bdf8);
           font-weight: 600;
           text-align: right;
           position: relative;
@@ -492,19 +505,40 @@
       hudContainer = document.createElement('div');
       hudContainer.className = 'hud';
 
-      const closeBtn = document.createElement('span');
-      closeBtn.className = 'close-btn';
-      closeBtn.textContent = '\u00d7';
-      closeBtn.title = 'Hide HUD until page reload';
-      closeBtn.addEventListener('click', (e) => {
+      infoButton = document.createElement('button');
+      infoButton.type = 'button';
+      infoButton.className = 'info-badge';
+      infoButton.title = 'Show Playback Info HUD';
+      infoButton.setAttribute('aria-label', infoButton.title);
+      infoButton.textContent = 'ℹ️';
+      infoButton.hidden = true;
+      infoButton.addEventListener('click', (e) => {
         e.stopPropagation();
         e.preventDefault();
+        expanded = true;
+        tick();
+        if (hudContainer.classList.contains('visible')) closeButton.focus();
+      }, true);
+
+      closeButton = document.createElement('button');
+      closeButton.type = 'button';
+      closeButton.className = 'close-btn';
+      closeButton.textContent = '\u00d7';
+      closeButton.addEventListener('click', (e) => {
+        e.stopPropagation();
+        e.preventDefault();
+        if (settings.showInfoButton) {
+          expanded = false;
+          tick();
+          if (!infoButton.hidden) infoButton.focus();
+          return;
+        }
         hudDismissed = true;
         hudContainer.classList.remove('visible');
         stopPolling();
         dbg('HUD dismissed by user until reload');
       });
-      hudContainer.appendChild(closeBtn);
+      hudContainer.appendChild(closeButton);
 
       const resRow = createRow('RES', false);
       const fpsRow = createRow('FPS', false);
@@ -521,7 +555,9 @@
       ui = { resRow, fpsRow, vcodecRow, modeRow, acodecRow };
 
       shadow.appendChild(style);
+      applyHudAppearance(hudContainer, settings);
       shadow.appendChild(hudContainer);
+      shadow.appendChild(infoButton);
     }
 
     if (hudHost.parentElement !== targetParent) {
@@ -584,8 +620,8 @@
 
         const vpWidth = document.documentElement.clientWidth || window.innerWidth;
         const vpHeight = document.documentElement.clientHeight || window.innerHeight;
-        const hudHeight = hudContainer.offsetHeight || 95;
-        const hudWidth = hudContainer.offsetWidth || 180;
+        const hudHeight = infoButton.hidden ? hudContainer.offsetHeight : infoButton.offsetHeight;
+        const hudWidth = infoButton.hidden ? hudContainer.offsetWidth : infoButton.offsetWidth;
 
         const rawTop = rect.top + offsetY + 10;
         const rawRight = vpWidth - (rect.left + offsetX + renderWidth) + 10;
@@ -637,12 +673,19 @@
     return globalCodecs;
   }
 
+  function meetsMinimumDimensions(el) {
+    if (el.tagName !== 'VIDEO') return true;
+    const { width, height } = el.getBoundingClientRect();
+    return width >= settings.minWidth && height >= settings.minHeight;
+  }
+
   function findPlayingMedia() {
     if (knownMediaElements.size === 0) {
       collectMediaElementsOnce(document);
     }
 
     let bestCandidate = null;
+    let foundPlayingMedia = false;
     for (const el of knownMediaElements) {
       try {
         if (!el.isConnected && (el.paused || el.ended)) {
@@ -651,6 +694,8 @@
           continue;
         }
         if (!el.paused && !el.ended && el.readyState >= 2) {
+          foundPlayingMedia = true;
+          if (!meetsMinimumDimensions(el)) continue;
           if (el.tagName === 'VIDEO' && el.videoWidth > 0) {
             return el;
           }
@@ -674,11 +719,12 @@
       }
     }
 
-    if (!bestCandidate) {
+    if (!bestCandidate && !foundPlayingMedia) {
       collectMediaElementsOnce(document);
       for (const el of knownMediaElements) {
         try {
           if (!el.paused && !el.ended && el.readyState >= 2) {
+            if (!meetsMinimumDimensions(el)) continue;
             if (el.tagName === 'VIDEO' && el.videoWidth > 0) return el;
             if (!bestCandidate) bestCandidate = el;
           }
@@ -692,8 +738,10 @@
   }
 
   function tick() {
+    if (!settingsReady) return;
     if (hudDismissed) {
       if (hudContainer) hudContainer.classList.remove('visible');
+      if (infoButton) infoButton.hidden = true;
       stopPolling();
       return;
     }
@@ -707,10 +755,14 @@
     if (!playingEl) {
       activeMedia = null;
       if (hudContainer) hudContainer.classList.remove('visible');
+      if (infoButton) infoButton.hidden = true;
       return;
     }
 
-    if (activeMedia !== playingEl) {
+    const source = playingEl.currentSrc || playingEl.src || "";
+    if (activeMedia !== playingEl || activeSource !== source) {
+      activeSource = source;
+      expanded = false;
       dbg('Switched activeMedia to:', {
         tag: playingEl.tagName,
         src: playingEl.currentSrc || playingEl.src,
@@ -723,7 +775,25 @@
       currentFps = 0;
     }
 
+    if (!meetsMinimumDimensions(activeMedia)) {
+      if (hudContainer) hudContainer.classList.remove('visible');
+      if (infoButton) infoButton.hidden = true;
+      lastTimestamp = 0;
+      currentFps = 0;
+      return;
+    }
+
     if (!ensureHUD() || !ui) return;
+    closeButton.title = settings.showInfoButton ? 'Collapse to info button' : 'Hide HUD until page reload';
+    closeButton.setAttribute('aria-label', closeButton.title);
+    infoButton.hidden = !settings.showInfoButton || expanded;
+    if (!infoButton.hidden) {
+      hudContainer.classList.remove('visible');
+      lastTimestamp = 0;
+      currentFps = 0;
+      updateHUDPosition(activeMedia);
+      return;
+    }
 
     const isVideo = activeMedia.tagName === 'VIDEO' && activeMedia.videoWidth > 0;
     const now = performance.now();
@@ -803,5 +873,20 @@
       ensureHUD();
       schedulePositionUpdate();
     }
+  });
+  watchHudSettings(defaults, nextSettings => {
+    if (settings.showInfoButton !== nextSettings.showInfoButton) {
+      expanded = false;
+      hudDismissed = false;
+    }
+    settings = nextSettings;
+    if (hudContainer) applyHudAppearance(hudContainer, settings);
+    if (settingsReady && !hudDismissed) {
+      if (activeMedia) startPolling();
+      tick();
+    }
+  }).then(() => {
+    settingsReady = true;
+    tick();
   });
 })();
