@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """Package either Firefox HUD or both from a clean source checkout."""
 
 import argparse
