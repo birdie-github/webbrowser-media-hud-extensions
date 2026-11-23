@@ -12,6 +12,7 @@
   "background": {
     "scripts": [
       "shared/settings.js",
+      "image-probe.js",
       "background.js"
     ],
     "persistent": true
@@ -24,6 +25,7 @@
       "js": [
         "shared/settings.js",
         "shared/appearance.js",
+        "image-probe.js",
         "content.js"
       ],
       "run_at": "document_idle",

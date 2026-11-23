@@ -1240,46 +1240,26 @@
     return null;
   }
 
-  // Cache-first local magic-byte slice (first 512 bytes covers 64-byte headers + JPEG SOF / PNG acTL)
-  async function fetchCacheFirstHeaderBytes(url) {
+  async function requestBackgroundImageMetadata(url, needBytes) {
     try {
-      const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), 1500);
-      const res = await fetch(url, {
-        method: "GET",
-        cache: "force-cache",
-        credentials: "same-origin",
-        signal: controller.signal
-      });
-      clearTimeout(timer);
-
-      if (!res.ok) return null;
-      const ct = res.headers.get("content-type");
-      const cl = res.headers.get("content-length");
-      let byteLength = cl ? parseInt(cl, 10) : null;
-      let headerBytes = null;
-
-      if (res.body) {
-        const reader = res.body.getReader();
-        const { value } = await reader.read();
-        if (value && value.byteLength > 0) {
-          headerBytes = value.slice(0, 512);
-        }
-        await reader.cancel().catch(() => {});
-      } else {
-        const buf = await res.arrayBuffer();
-        if (!byteLength && buf.byteLength > 0) byteLength = buf.byteLength;
-        headerBytes = new Uint8Array(buf.slice(0, 512));
-      }
-
-      return {
-        contentType: ct ? ct.split(";")[0].trim().toLowerCase() : null,
-        contentLength: Number.isFinite(byteLength) && byteLength > 0 ? byteLength : null,
-        headerBytes
-      };
-    } catch (e) {
+      return await browser.runtime.sendMessage({ type: "GET_IMAGE_METADATA", url, needBytes });
+    } catch {
       return null;
     }
+  }
+
+  async function probeImageMetadata(url) {
+    const isHttp = /^https?:\/\//i.test(url);
+    const cached = isHttp ? await requestBackgroundImageMetadata(url, false) : null;
+    let probe = await fetchImagePrefix(url, "same-origin", 1500);
+    if (!probe?.headerBytes && isHttp) {
+      probe = await requestBackgroundImageMetadata(url, true) || probe;
+    }
+    return {
+      contentType: cached?.contentType || probe?.contentType,
+      contentLength: cached?.contentLength ?? probe?.contentLength,
+      headerBytes: probe?.headerBytes
+    };
   }
 
   // Decode data: URI directly
@@ -1340,50 +1320,10 @@
         headerBytes = parsed.headerBytes;
       }
     } else {
-      // 1. Query background webRequest passive header cache first
-      try {
-        const bgMeta = await browser.runtime.sendMessage({
-          type: "GET_IMAGE_METADATA",
-          url,
-          needBytes: false
-        });
-        if (bgMeta) {
-          contentType = bgMeta.contentType || contentType;
-          if (!byteSize && bgMeta.contentLength) {
-            byteSize = bgMeta.contentLength;
-          }
-        }
-      } catch (e) {}
-
-      // 2. Try content-script force-cache slice for magic bytes
-      const localProbe = await fetchCacheFirstHeaderBytes(url);
-      if (localProbe) {
-        contentType = localProbe.contentType || contentType;
-        if (!byteSize && localProbe.contentLength) {
-          byteSize = localProbe.contentLength;
-        }
-        headerBytes = localProbe.headerBytes;
-      }
-
-      // 3. If CORS blocked content-script fetch, ask privileged background script for magic bytes & size
-      if (!headerBytes || !byteSize) {
-        try {
-          const bgProbe = await browser.runtime.sendMessage({
-            type: "GET_IMAGE_METADATA",
-            url,
-            needBytes: true
-          });
-          if (bgProbe) {
-            contentType = bgProbe.contentType || contentType;
-            if (!byteSize && bgProbe.contentLength) {
-              byteSize = bgProbe.contentLength;
-            }
-            if (!headerBytes && bgProbe.headerBytes) {
-              headerBytes = new Uint8Array(bgProbe.headerBytes);
-            }
-          }
-        } catch (e) {}
-      }
+      const probe = await probeImageMetadata(url);
+      contentType = probe.contentType || contentType;
+      byteSize = byteSize || probe.contentLength || null;
+      headerBytes = probe.headerBytes;
     }
 
     const analyzed = analyzeHeaderBytes(headerBytes, contentType, url);

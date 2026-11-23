@@ -30,7 +30,7 @@ function getCacheEntry(url) {
 // Passive HTTP Header Capture for exact MIME type & Content-Length
 browser.webRequest.onHeadersReceived.addListener(
   (details) => {
-    if (details.statusCode < 200 || details.statusCode >= 400) return;
+    if (details.statusCode !== 200) return;
     const headers = details.responseHeaders || [];
     let contentType = null;
     let contentLength = null;
@@ -127,79 +127,16 @@ if (browser.menus && browser.menus.onShown) {
   });
 }
 
-// Privileged Fallback Probe for Magic Bytes & Header Inspection
-async function probeUrlInBackground(url) {
-  const cached = getCacheEntry(url) || {};
-  let contentType = cached.contentType || null;
-  let contentLength = cached.contentLength ?? null;
-  let headerBytes = null;
+browser.runtime.onMessage.addListener((message) => {
+  if (!message || message.type !== "GET_IMAGE_METADATA") return false;
+  const { url, needBytes } = message;
+  if (typeof url !== "string" || !/^https?:\/\//i.test(url)) return false;
 
-  try {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 3500);
-
-    const response = await fetch(url, {
-      method: "GET",
-      cache: "force-cache",
-      credentials: "omit",
-      signal: controller.signal
-    });
-
-    if (!contentType) {
-      const ct = response.headers.get("content-type");
-      if (ct) contentType = ct.split(";")[0].trim().toLowerCase();
-    }
-    if (contentLength === null) {
-      const cl = response.headers.get("content-length");
-      if (cl) {
-        const parsed = parseInt(cl, 10);
-        if (Number.isFinite(parsed) && parsed > 0) contentLength = parsed;
-      }
-    }
-
-    if (response.body) {
-      const reader = response.body.getReader();
-      const { value } = await reader.read();
-      if (value && value.byteLength > 0) {
-        headerBytes = Array.from(value.slice(0, 512));
-      }
-      await reader.cancel().catch(() => {});
-    } else {
-      const buf = await response.arrayBuffer();
-      if (contentLength === null && buf.byteLength > 0) {
-        contentLength = buf.byteLength;
-      }
-      headerBytes = Array.from(new Uint8Array(buf.slice(0, 512)));
-    }
-
-    clearTimeout(timeoutId);
-
-    if (contentType || contentLength !== null) {
-      setCacheEntry(url, { contentType, contentLength, timestamp: Date.now() });
-    }
-  } catch (e) {
-    // Ignore network/abort errors; return whatever was cached
-  }
-
-  return { contentType, contentLength, headerBytes };
-}
-
-browser.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  if (!message || typeof message !== "object") return false;
-
-  if (message.type === "GET_IMAGE_METADATA") {
-    const url = message.url;
-    const cached = getCacheEntry(url);
-    if (cached && !message.needBytes) {
-      return Promise.resolve({
-        contentType: cached.contentType,
-        contentLength: cached.contentLength,
-        headerBytes: null
-      });
-    }
-    return probeUrlInBackground(url);
-  }
-  return false;
+  if (!needBytes) return Promise.resolve(getCacheEntry(url));
+  return fetchImagePrefix(url, "omit", 3500).then(probe => {
+    if (probe?.headerBytes) probe.headerBytes = Array.from(probe.headerBytes);
+    return probe;
+  });
 });
 
 watchHudSettings(DEFAULT_SETTINGS, settings => {
